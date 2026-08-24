@@ -57,13 +57,13 @@ export {
 } from './host-heartbeat.ts'
 
 /** Stable Cordis plugin name. */
-export const name = 'llm-workbuddy'
+export const name = 'llm-workbuddy-connect-oo'
 
 /** The model registry required before the provider can register. */
 export const inject = ['llm']
 
 /** Settings namespace reserved for the future configuration card. */
-export const WORKBUDDY_SETTINGS_NS = settingsNamespace('workbuddy')
+export const WORKBUDDY_SETTINGS_NS = settingsNamespace('workbuddy-oo')
 
 /** Plugin configuration. */
 export interface Config {

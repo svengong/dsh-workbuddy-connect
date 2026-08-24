@@ -238,7 +238,7 @@ declare function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddySh
 //#endregion
 //#region src/adapter.d.ts
 /** Provider route this bundle owns. */
-declare const WORKBUDDY_PROVIDER = "workbuddy";
+declare const WORKBUDDY_PROVIDER = "workbuddy-oo";
 /** Provider idle ceiling while one stream read is outstanding. */
 declare const WORKBUDDY_STREAM_IDLE_TIMEOUT_MS = 300000;
 /** Constructor dependencies. */
@@ -282,7 +282,7 @@ declare const HEARTBEAT_FORMAT_VERSION = 1;
 /** On-disk shape of the heartbeat. */
 interface WorkBuddyHostHeartbeat {
   version: typeof HEARTBEAT_FORMAT_VERSION;
-  package: 'dsh-workbuddy-connect';
+  package: 'dsh-workbuddy-connect-oo';
   pluginVersion: string;
   /** Epoch milliseconds when the host registered the provider. */
   registeredAt: number;
@@ -329,7 +329,7 @@ declare function isHeartbeatProcessAlive(heartbeat: WorkBuddyHostHeartbeat): boo
 //#endregion
 //#region src/index.d.ts
 /** Stable Cordis plugin name. */
-declare const name = "llm-workbuddy";
+declare const name = "llm-workbuddy-connect-oo";
 /** The model registry required before the provider can register. */
 declare const inject: string[];
 /** Settings namespace reserved for the future configuration card. */

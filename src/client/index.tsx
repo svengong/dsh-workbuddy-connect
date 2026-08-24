@@ -46,7 +46,7 @@ export function apply(ctx: ClientContext): void {
     const t = ctx.locale.bind(namespace) as WorkBuddyPluginCardInjected['t']
     ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
       name: 'settings.plugin.item',
-      key: 'workbuddy',
+      key: 'workbuddy-oo',
       priority: 30,
       inject: (): WorkBuddyPluginCardInjected => ({ t }),
     }, WorkBuddyPluginCard))

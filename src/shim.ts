@@ -216,7 +216,7 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
             id: model.id,
             object: 'model',
             created: 0,
-            owned_by: 'workbuddy',
+            owned_by: 'workbuddy-oo',
           })),
         })
         return

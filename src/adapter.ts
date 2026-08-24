@@ -18,7 +18,7 @@ import type { WorkBuddyCatalog, WorkBuddyModelInfo } from './catalog.ts'
 import type { WorkBuddyShim } from './shim.ts'
 
 /** Provider route this bundle owns. */
-export const WORKBUDDY_PROVIDER = 'workbuddy'
+export const WORKBUDDY_PROVIDER = 'workbuddy-oo'
 
 /** Provider idle ceiling while one stream read is outstanding. */
 export const WORKBUDDY_STREAM_IDLE_TIMEOUT_MS = 300_000

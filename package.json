@@ -1,5 +1,5 @@
 {
-  "name": "dsh-workbuddy-connect",
+  "name": "dsh-workbuddy-connect-oo",
   "displayName": "DSH WorkBuddy Connect",
   "description": "将 WorkBuddy 桌面 App 包含的模型自动接入 DeepSeek Harness — bring WorkBuddy desktop app models into DeepSeek Harness with zero configuration.",
   "version": "0.2.2",
@@ -18,7 +18,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "bin": {
-    "dsh-workbuddy-connect": "lib/bin.js"
+    "dsh-workbuddy-connect-oo": "lib/bin.js"
   },
   "scripts": {
     "prepack": "npm run build",

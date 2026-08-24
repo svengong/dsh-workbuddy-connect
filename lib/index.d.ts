@@ -13,6 +13,10 @@ interface WorkBuddyUpstreamModel {
   name: string;
   contextWindow: number;
   maxTokens: number;
+  /** Whether the upstream model reports itself as reasoning-capable. */
+  supportsReasoning?: boolean;
+  /** Raw upstream `reasoning` object (effort / defaultEffort / supportedEfforts / …). */
+  reasoning?: Record<string, unknown>;
 }
 /** One billing package and its remaining credit. */
 interface WorkBuddyCreditAccount {

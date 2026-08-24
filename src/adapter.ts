@@ -82,12 +82,17 @@ function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
   const supportsReasoning = info.supportsReasoning === true
   const reasoningCfg = info.reasoning
   let thinkingLevelMap: Record<string, string | null> | undefined
-  if (
-    reasoningCfg !== undefined
-    && Array.isArray(reasoningCfg['supportedEfforts'])
-    && (reasoningCfg['supportedEfforts'] as unknown[]).length > 0
-  ) {
-    const supported = reasoningCfg['supportedEfforts'] as string[]
+  // 确定该模型支持的推理档位：优先 supportedEfforts（多档），否则用固定 effort（单档）
+  let supported: string[] | undefined
+  if (reasoningCfg !== undefined) {
+    const explicit = reasoningCfg['supportedEfforts']
+    if (Array.isArray(explicit) && explicit.length > 0) {
+      supported = explicit as string[]
+    } else if (typeof reasoningCfg['effort'] === 'string' && reasoningCfg['effort'] !== '') {
+      supported = [reasoningCfg['effort']]
+    }
+  }
+  if (supported !== undefined && supported.length > 0) {
     thinkingLevelMap = {}
     for (const level of THINKING_LEVELS) {
       thinkingLevelMap[level] = supported.includes(level) ? level : null

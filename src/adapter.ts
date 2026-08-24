@@ -78,24 +78,40 @@ export interface WorkBuddyAdapter {
 /** Build one pi-ai model descriptor pointing at the loopback shim. */
 const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
+/**
+ * 内置档位映射：后端 reasoning 元数据未下发完整档位的模型，用这份表补齐
+ * （与 WorkBuddy 桌面端内置目录一致，如 deepseek 的 high + max）。
+ */
+const BUILTIN_THINKING_LEVEL_MAP: Record<string, Record<string, string | null>> = {
+  'deepseek-v4-flash': { off: null, minimal: null, low: null, medium: null, high: 'high', xhigh: 'max', max: null },
+  'deepseek-v4-pro': { off: null, minimal: null, low: null, medium: null, high: 'high', xhigh: 'max', max: null },
+}
+
 function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
   const supportsReasoning = info.supportsReasoning === true
   const reasoningCfg = info.reasoning
   let thinkingLevelMap: Record<string, string | null> | undefined
-  // 确定该模型支持的推理档位：优先 supportedEfforts（多档），否则用固定 effort（单档）
-  let supported: string[] | undefined
-  if (reasoningCfg !== undefined) {
-    const explicit = reasoningCfg['supportedEfforts']
-    if (Array.isArray(explicit) && explicit.length > 0) {
-      supported = explicit as string[]
-    } else if (typeof reasoningCfg['effort'] === 'string' && reasoningCfg['effort'] !== '') {
-      supported = [reasoningCfg['effort']]
-    }
-  }
-  if (supported !== undefined && supported.length > 0) {
+  // 确定该模型支持的推理档位，优先级：
+  //   1. 后端下发 supportedEfforts（多档，如 glm-5.3 / hy3-x）
+  //   2. 内置档位映射（后端未下发完整档位，如 deepseek 的 high + max）
+  //   3. 固定 effort（单档，如 auto / glm-5.2）
+  const explicit = reasoningCfg !== undefined ? reasoningCfg['supportedEfforts'] : undefined
+  const builtin = BUILTIN_THINKING_LEVEL_MAP[info.id]
+  const fixedEffort = reasoningCfg !== undefined && typeof reasoningCfg['effort'] === 'string' && reasoningCfg['effort'] !== ''
+    ? reasoningCfg['effort'] as string
+    : undefined
+
+  if (Array.isArray(explicit) && explicit.length > 0) {
     thinkingLevelMap = {}
     for (const level of THINKING_LEVELS) {
-      thinkingLevelMap[level] = supported.includes(level) ? level : null
+      thinkingLevelMap[level] = (explicit as string[]).includes(level) ? level : null
+    }
+  } else if (builtin !== undefined) {
+    thinkingLevelMap = { ...builtin }
+  } else if (fixedEffort !== undefined) {
+    thinkingLevelMap = {}
+    for (const level of THINKING_LEVELS) {
+      thinkingLevelMap[level] = level === fixedEffort ? level : null
     }
   }
   return {

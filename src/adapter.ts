@@ -76,7 +76,23 @@ export interface WorkBuddyAdapter {
 }
 
 /** Build one pi-ai model descriptor pointing at the loopback shim. */
+const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
 function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
+  const supportsReasoning = info.supportsReasoning === true
+  const reasoningCfg = info.reasoning
+  let thinkingLevelMap: Record<string, string | null> | undefined
+  if (
+    reasoningCfg !== undefined
+    && Array.isArray(reasoningCfg['supportedEfforts'])
+    && (reasoningCfg['supportedEfforts'] as unknown[]).length > 0
+  ) {
+    const supported = reasoningCfg['supportedEfforts'] as string[]
+    thinkingLevelMap = {}
+    for (const level of THINKING_LEVELS) {
+      thinkingLevelMap[level] = supported.includes(level) ? level : null
+    }
+  }
   return {
     id: info.id,
     name: info.name,
@@ -87,6 +103,9 @@ function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
     cost: NO_COST,
     contextWindow: info.contextWindow,
     maxTokens: info.maxTokens,
+    reasoning: supportsReasoning,
+    ...thinkingLevelMap === undefined ? {} : { thinkingLevelMap },
+    compat: { supportsReasoningEffort: true },
   } as unknown as Model<Api>
 }
 

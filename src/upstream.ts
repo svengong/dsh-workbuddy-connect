@@ -27,6 +27,10 @@ export interface WorkBuddyUpstreamModel {
   name: string
   contextWindow: number
   maxTokens: number
+  /** Whether the upstream model reports itself as reasoning-capable. */
+  supportsReasoning?: boolean
+  /** Raw upstream `reasoning` object (effort / defaultEffort / supportedEfforts / …). */
+  reasoning?: Record<string, unknown>
 }
 
 /** One billing package and its remaining credit. */
@@ -59,7 +63,7 @@ const CN_CHAT_BASE = 'https://copilot.tencent.com'
 const CN_BILLING_BASE = 'https://www.codebuddy.cn'
 const GLOBAL_BASE = 'https://www.workbuddy.ai'
 
-const CLIENT_UA = 'CLI/2.63.2 CodeBuddy/2.63.2'
+const CLIENT_UA = 'WorkBuddy/5.3.14'
 const JSON_TIMEOUT_MS = 30_000
 const ERROR_BODY_LIMIT = 4096
 
@@ -133,6 +137,9 @@ function chatHeaders(credential: WorkBuddyCredential): Record<string, string> {
       : { 'X-Enterprise-Id': credential.enterpriseId },
     ...credential.domain === '' ? { 'X-No-Department-Info': '1' } : { 'X-Domain': credential.domain },
     'X-Product': 'SaaS',
+    'X-IDE-Type': 'WorkBuddy',
+    'X-IDE-Name': 'WorkBuddy',
+    'X-IDE-Version': '5.3.14',
   }
   return headers
 }
@@ -352,11 +359,16 @@ export class WorkBuddyUpstreamClient {
       const input = typeof wrapped['maxInputTokens'] === 'number' ? wrapped['maxInputTokens'] : 0
       const output = typeof wrapped['maxOutputTokens'] === 'number' ? wrapped['maxOutputTokens'] : 0
       if (input <= 0 || output <= 0) continue
+      const reasoningRaw = typeof wrapped['reasoning'] === 'object' && wrapped['reasoning'] !== null
+        ? wrapped['reasoning'] as Record<string, unknown>
+        : undefined
       byId.set(id, {
         id,
         name: typeof wrapped['name'] === 'string' && wrapped['name'] !== '' ? wrapped['name'] : id,
         contextWindow: input,
         maxTokens: output,
+        supportsReasoning: wrapped['supportsReasoning'] === true,
+        ...reasoningRaw === undefined ? {} : { reasoning: reasoningRaw },
       })
     }
     const models = cliIds

@@ -88,15 +88,18 @@ const BUILTIN_THINKING_LEVEL_MAP: Record<string, Record<string, string | null>> 
 }
 
 function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
-  const supportsReasoning = info.supportsReasoning === true
   const reasoningCfg = info.reasoning
+  const builtin = BUILTIN_THINKING_LEVEL_MAP[info.id]
+  // 后端 supportsReasoning=true 但未下发 reasoning 配置、且无内置映射的模型
+  // （如 glm-5.0 / glm-4.7 / glm-4.6）在桌面端前端不显示推理档位，这里同样置为不支持推理。
+  const supportsReasoning = info.supportsReasoning === true
+    && (reasoningCfg !== undefined || builtin !== undefined)
   let thinkingLevelMap: Record<string, string | null> | undefined
   // 确定该模型支持的推理档位，优先级：
   //   1. 后端下发 supportedEfforts（多档，如 glm-5.3 / hy3-x）
   //   2. 内置档位映射（后端未下发完整档位，如 deepseek 的 high + max）
   //   3. 固定 effort（单档，如 auto / glm-5.2）
   const explicit = reasoningCfg !== undefined ? reasoningCfg['supportedEfforts'] : undefined
-  const builtin = BUILTIN_THINKING_LEVEL_MAP[info.id]
   const fixedEffort = reasoningCfg !== undefined && typeof reasoningCfg['effort'] === 'string' && reasoningCfg['effort'] !== ''
     ? reasoningCfg['effort'] as string
     : undefined

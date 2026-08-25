@@ -98,9 +98,11 @@ function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
   // 确定该模型支持的推理档位，优先级：
   //   1. 后端下发 supportedEfforts（多档，如 glm-5.3 / hy3-x）
   //   2. 内置档位映射（后端未下发完整档位，如 deepseek 的 high + max）
-  //   3. 固定 effort（只有默认档位，如 auto / glm-5.2 / kimi 系列）
+  //   3. 固定 effort（单档，如 auto / glm-5.2 / kimi 系列）
   const explicit = reasoningCfg !== undefined ? reasoningCfg['supportedEfforts'] : undefined
-  const hasFixedEffort = reasoningCfg !== undefined && typeof reasoningCfg['effort'] === 'string' && reasoningCfg['effort'] !== ''
+  const fixedEffort = reasoningCfg !== undefined && typeof reasoningCfg['effort'] === 'string' && reasoningCfg['effort'] !== ''
+    ? reasoningCfg['effort'] as string
+    : undefined
 
   if (Array.isArray(explicit) && explicit.length > 0) {
     thinkingLevelMap = {}
@@ -109,12 +111,13 @@ function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
     }
   } else if (builtin !== undefined) {
     thinkingLevelMap = { ...builtin }
-  } else if (hasFixedEffort) {
-    // 固定 effort 模型：只有默认档位，不提供档位选择。
-    // 档位全 null → pi-ai 返回空档位，DSH 界面只留「默认」，与桌面端一致。
+  } else if (fixedEffort !== undefined) {
+    // 固定 effort 模型：只有默认档位（effort）。DSH 校验要求 efforts 非空
+    // （reasoning.efforts.length === 0 即报 INVALID_MODEL_REASONING），无法
+    // 表达「零档位」，故用单档表达——只保留 effort 一档，其余 null。
     thinkingLevelMap = {}
     for (const level of THINKING_LEVELS) {
-      thinkingLevelMap[level] = null
+      thinkingLevelMap[level] = level === fixedEffort ? level : null
     }
   }
   return {

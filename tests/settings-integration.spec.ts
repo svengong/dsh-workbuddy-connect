@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -34,9 +34,29 @@ afterEach(async () => {
 })
 
 describe('WorkBuddy Host settings integration', () => {
-  it('exposes the provider directory entry, the settings section, and the fallback model list', async () => {
+  it('exposes the provider directory entry, the settings section, and the local model catalog', async () => {
     root = await mkdtemp(join(tmpdir(), 'dsh-workbuddy-connect-settings-'))
     vi.stubEnv('DSH_HOME', root)
+
+    // Pin the product-config cache to a fixture. The real one lives under
+    // ~/.workbuddy/cache and is refreshed by the desktop app, so reading it
+    // here would make this test depend on the host machine's state.
+    const configPath = join(root, 'acc-product-config-v3.json')
+    await writeFile(configPath, JSON.stringify({
+      models: [
+        { id: 'auto', name: 'Auto', maxInputTokens: 168_000, maxOutputTokens: 32_000, reasoning: { effort: 'high' } },
+        {
+          id: 'deepseek-v4-pro-ioa',
+          name: 'DeepSeek V4 Pro',
+          maxInputTokens: 1_000_000,
+          maxOutputTokens: 64_000,
+          reasoning: { defaultEffort: 'high', supportedEfforts: ['low', 'high'] },
+        },
+      ],
+      agents: [{ name: 'cli', description: 'cli agent', models: ['auto', 'deepseek-v4-pro-ioa'] }],
+    }), 'utf8')
+    vi.stubEnv('ACC_PRODUCT_CONFIG_PATH', configPath)
+
     const ctx = new Context()
     context = ctx
     await ctx.plugin(LlmRuntime)
@@ -45,12 +65,12 @@ describe('WorkBuddy Host settings integration', () => {
 
     // Registration rides on the loopback shim's listening event.
     await vi.waitFor(() => {
-      expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('workbuddy')
+      expect(ctx.llm.listProviders().map(provider => provider.id)).toContain('workbuddy-oo')
     })
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
-      provider: 'workbuddy',
+      provider: 'workbuddy-oo',
       displayName: 'WorkBuddy',
-      settingsNs: 'workbuddy',
+      settingsNs: WorkBuddy.WORKBUDDY_SETTINGS_NS,
       settingsPath: [],
       declared: false,
     })
@@ -59,9 +79,9 @@ describe('WorkBuddy Host settings integration', () => {
     const descriptor = ctx.settings.describe().find(entry => entry.ns === WorkBuddy.WORKBUDDY_SETTINGS_NS)
     expect(descriptor).toBeDefined()
 
-    const models = await ctx.llm.listModels('workbuddy')
+    const models = await ctx.llm.listModels('workbuddy-oo')
     expect(models.map(model => model.id)).toContain('auto')
-    expect(models.map(model => model.id)).toContain('deepseek-v4-pro')
+    expect(models.map(model => model.id)).toContain('deepseek-v4-pro-ioa')
 
     // A settings write validates against the schema and persists.
     await ctx.settings.update(WorkBuddy.WORKBUDDY_SETTINGS_NS, { authFile: '/tmp/other-workbuddy.info' })

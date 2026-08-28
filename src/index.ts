@@ -172,13 +172,13 @@ export function apply(ctx: Context, config: Config): void {
         try {
           const credential = await store.current()
           if (credential === undefined || stopped) return
-          const models = await client.fetchModels(credential)
+          const models = await client.fetchModels()
           if (stopped) return
           catalog.set([...models])
           invalidate?.()
         } catch (error: unknown) {
           ctx.logger.warn(
-            'dsh-workbuddy-connect: dynamic model catalog unavailable; serving the static fallback list',
+            'dsh-workbuddy-connect: local model catalog cache unavailable; serving the static fallback list',
             error,
           )
         }

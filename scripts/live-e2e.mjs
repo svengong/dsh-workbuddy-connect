@@ -33,7 +33,10 @@ if (credential === undefined) {
   console.error('not signed in: open the WorkBuddy desktop app once')
   process.exit(1)
 }
-const refreshed = await client.fetchModels(credential)
+// The catalog now comes from the desktop app's local /v3/config cache, so
+// reading it needs no credential; the sign-in check above only guarantees the
+// streaming and credit steps below have a token to use.
+const refreshed = await client.fetchModels()
 catalog.set([...refreshed])
 invalidate()
 const liveList = await adapter.listModels('workbuddy')

@@ -8,6 +8,7 @@ import { WorkBuddyUpstreamClient } from './upstream.ts'
 import { FALLBACK_WORKBUDDY_MODELS } from './catalog.ts'
 import { WORKBUDDY_CONNECT_VERSION } from './version.ts'
 import { isHeartbeatProcessAlive, readHostHeartbeat, workbuddyHostHeartbeatPath } from './host-heartbeat.ts'
+import { readProductConfigModels, resolveProductConfigPath } from './v3-config.ts'
 
 type Action = 'doctor' | 'logout' | 'status'
 
@@ -42,12 +43,28 @@ function makeStore(): WorkBuddyCredentialStore {
   return new WorkBuddyCredentialStore({ refresh: credential => client.refreshToken(credential) })
 }
 
+/**
+ * Resolve the local model catalog. The list is read from the desktop app's
+ * cached product config, so an absent or unparsable cache — not a network or
+ * sign-in problem — is why the picker falls back to the static list.
+ */
+async function inspectModelCatalog(): Promise<{ path: string; models?: number; error?: string }> {
+  const path = resolveProductConfigPath()
+  try {
+    const models = await readProductConfigModels(path)
+    return { path, models: models.length }
+  } catch (error: unknown) {
+    return { path, error: safeMessage(error) }
+  }
+}
+
 async function doctor(jsonOutput: boolean): Promise<number> {
   const store = makeStore()
   const status = await store.status()
   const desktopPresent = await store.desktopFilePresent()
   const heartbeat = await readHostHeartbeat()
   const hostAlive = heartbeat !== undefined && isHeartbeatProcessAlive(heartbeat)
+  const modelCatalog = await inspectModelCatalog()
   const report = {
     schemaVersion: JSON_SCHEMA_VERSION,
     package: 'dsh-workbuddy-connect',
@@ -64,12 +81,17 @@ async function doctor(jsonOutput: boolean): Promise<number> {
       ...heartbeat === undefined ? {} : { registeredAt: heartbeat.registeredAt, pid: heartbeat.pid },
       processAlive: hostAlive,
     },
+    modelCatalog,
     signIn: status.state,
     fallbackModels: FALLBACK_WORKBUDDY_MODELS.length,
     hints: [
       ...status.state === 'signed-in' ? [] : ['Sign in once in the WorkBuddy desktop app, then run status again.'],
       ...desktopPresent ? [] : [`No WorkBuddy desktop auth file at the expected path; set WORKBUDDY_AUTH_FILE if it lives elsewhere.`],
       ...hostAlive ? [] : ['Host bundle not running in this DSH profile (or the process exited). The browser card and provider are unavailable until DSH starts the plugin.'],
+      ...modelCatalog.error === undefined ? [] : [
+        `Model catalog falls back to ${FALLBACK_WORKBUDDY_MODELS.length} static models: ${modelCatalog.error}.`
+        + ' Override the path with ACC_PRODUCT_CONFIG_PATH if the cache lives elsewhere.',
+      ],
     ],
   }
   if (jsonOutput) {
@@ -80,6 +102,9 @@ async function doctor(jsonOutput: boolean): Promise<number> {
       `Desktop auth file: ${report.desktopAuthFile.present ? 'present' : 'missing'} (${report.desktopAuthFile.path})`,
       `Host bundle: ${hostAlive ? `running (pid ${heartbeat!.pid})` : heartbeat !== undefined ? 'stale heartbeat (process exited)' : 'not started'}`,
       `Sign-in state: ${report.signIn}`,
+      modelCatalog.error === undefined
+        ? `Model catalog: ${modelCatalog.models} models from ${modelCatalog.path}`
+        : `Model catalog: unavailable (${modelCatalog.error})`,
       `Static fallback models: ${report.fallbackModels}`,
       ...report.hints.map(hint => `Hint: ${hint}`),
       '',

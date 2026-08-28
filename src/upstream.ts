@@ -8,6 +8,7 @@
  */
 
 import type { WorkBuddyCredential } from './auth.ts'
+import { readProductConfigModels } from './v3-config.ts'
 
 /** WorkBuddy region selected by the credential's login domain. */
 export type WorkBuddyRegion = 'cn' | 'global'
@@ -319,72 +320,22 @@ export class WorkBuddyUpstreamClient {
   }
 
   /**
-   * GET the model catalog and keep the `cli` agent's models only. When the
-   * credential carries an enterprise id, request the enterprise-scoped
-   * catalog (`/console/enterprises/{enterpriseId}/models`), which includes
-   * enterprise-only models (glm-5.3-flash-ioa, gpt-5.6-*, claude-*, …) the
-   * personal endpoint omits; otherwise fall back to the personal catalog.
+   * The `cli` agent's model catalog, read from the local product-config cache
+   * (`~/.workbuddy/cache/acc-product-config-v3.json`) — the desktop app's
+   * on-disk mirror of `/v3/config`, and the same document its own model picker
+   * renders from.
+   *
+   * Catalog discovery is deliberately local: it needs no credential and makes
+   * no network call, and it cannot drift from the desktop app's list. The
+   * enterprise `/console/enterprises/{id}/models` endpoint is not used because
+   * it returns a narrower catalog that omits cli-only models such as
+   * `hy4-preview-ioa` and `echo`.
+   *
+   * Throws when the cache is missing or unparsable; callers fall back to the
+   * static catalog, which is why the message names the desktop app.
    */
-  async fetchModels(credential: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]> {
-    const scope = credential.enterpriseId !== undefined && credential.enterpriseId !== ''
-      ? credential.enterpriseId
-      : 'personal'
-    const response = await fetch(`${chatBase(credential)}/console/enterprises/${scope}/models`, {
-      headers: {
-        'Authorization': `Bearer ${credential.accessToken}`,
-        'Accept': 'application/json',
-        'Origin': originReferer(credential),
-        'Referer': `${originReferer(credential)}/`,
-        'User-Agent': CLIENT_UA,
-      },
-      signal: AbortSignal.timeout(JSON_TIMEOUT_MS),
-    })
-    const envelope = await readEnvelope(response)
-    if (!response.ok || envelope.code !== 0) throw envelopeError(response.status, envelope)
-    const data = typeof envelope.data === 'object' && envelope.data !== null
-      ? envelope.data as Record<string, unknown>
-      : {}
-    const rawModels = Array.isArray(data['models']) ? data['models'] : []
-    const agents = Array.isArray(data['agents']) ? data['agents'] : []
-    let cliIds: readonly string[] | undefined
-    for (const agent of agents) {
-      if (typeof agent === 'object' && agent !== null) {
-        const wrapped = agent as Record<string, unknown>
-        if (wrapped['name'] === 'cli' && Array.isArray(wrapped['models'])) {
-          cliIds = wrapped['models'].filter((id): id is string => typeof id === 'string')
-          break
-        }
-      }
-    }
-    if (cliIds === undefined || cliIds.length === 0) {
-      throw new Error('workbuddy model catalog lists no cli agent models')
-    }
-    const byId = new Map<string, WorkBuddyUpstreamModel>()
-    for (const model of rawModels) {
-      if (typeof model !== 'object' || model === null) continue
-      const wrapped = model as Record<string, unknown>
-      const id = typeof wrapped['id'] === 'string' ? wrapped['id'] : ''
-      if (id === '' || wrapped['disabled'] === true) continue
-      const input = typeof wrapped['maxInputTokens'] === 'number' ? wrapped['maxInputTokens'] : 0
-      const output = typeof wrapped['maxOutputTokens'] === 'number' ? wrapped['maxOutputTokens'] : 0
-      if (input <= 0 || output <= 0) continue
-      const reasoningRaw = typeof wrapped['reasoning'] === 'object' && wrapped['reasoning'] !== null
-        ? wrapped['reasoning'] as Record<string, unknown>
-        : undefined
-      byId.set(id, {
-        id,
-        name: typeof wrapped['name'] === 'string' && wrapped['name'] !== '' ? wrapped['name'] : id,
-        contextWindow: input,
-        maxTokens: output,
-        supportsReasoning: wrapped['supportsReasoning'] === true,
-        ...reasoningRaw === undefined ? {} : { reasoning: reasoningRaw },
-      })
-    }
-    const models = cliIds
-      .map(id => byId.get(id))
-      .filter((model): model is WorkBuddyUpstreamModel => model !== undefined)
-    if (models.length === 0) throw new Error('workbuddy model catalog resolved to an empty list')
-    return models
+  async fetchModels(): Promise<readonly WorkBuddyUpstreamModel[]> {
+    return readProductConfigModels()
   }
 
   /** POST the billing endpoint for the aggregated remaining credit. */

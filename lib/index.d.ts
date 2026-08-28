@@ -65,7 +65,13 @@ declare class WorkBuddyUpstreamClient {
   chatStream(credential: WorkBuddyCredential, bodyJson: string, signal?: AbortSignal): Promise<WorkBuddyChatResult>;
   /** POST the token-refresh endpoint; the caller merges the outcome. */
   refreshToken(credential: WorkBuddyCredential): Promise<WorkBuddyRefreshOutcome>;
-  /** GET the personal model catalog and keep the `cli` agent's models only. */
+  /**
+   * GET the model catalog and keep the `cli` agent's models only. When the
+   * credential carries an enterprise id, request the enterprise-scoped
+   * catalog (`/console/enterprises/{enterpriseId}/models`), which includes
+   * enterprise-only models (glm-5.3-flash-ioa, gpt-5.6-*, claude-*, …) the
+   * personal endpoint omits; otherwise fall back to the personal catalog.
+   */
   fetchModels(credential: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]>;
   /** POST the billing endpoint for the aggregated remaining credit. */
   fetchCredits(credential: WorkBuddyCredential): Promise<WorkBuddyCredits>;

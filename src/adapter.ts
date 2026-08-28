@@ -85,6 +85,8 @@ const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'ma
 const BUILTIN_THINKING_LEVEL_MAP: Record<string, Record<string, string | null>> = {
   'deepseek-v4-flash': { off: null, minimal: null, low: null, medium: null, high: 'high', xhigh: 'max', max: null },
   'deepseek-v4-pro': { off: null, minimal: null, low: null, medium: null, high: 'high', xhigh: 'max', max: null },
+  'deepseek-v4-flash-ioa': { off: null, minimal: null, low: null, medium: null, high: 'high', xhigh: 'max', max: null },
+  'deepseek-v4-pro-ioa': { off: null, minimal: null, low: null, medium: null, high: 'high', xhigh: 'max', max: null },
 }
 
 function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {

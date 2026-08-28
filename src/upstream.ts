@@ -318,9 +318,18 @@ export class WorkBuddyUpstreamClient {
     return outcome
   }
 
-  /** GET the personal model catalog and keep the `cli` agent's models only. */
+  /**
+   * GET the model catalog and keep the `cli` agent's models only. When the
+   * credential carries an enterprise id, request the enterprise-scoped
+   * catalog (`/console/enterprises/{enterpriseId}/models`), which includes
+   * enterprise-only models (glm-5.3-flash-ioa, gpt-5.6-*, claude-*, …) the
+   * personal endpoint omits; otherwise fall back to the personal catalog.
+   */
   async fetchModels(credential: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]> {
-    const response = await fetch(`${chatBase(credential)}/console/enterprises/personal/models`, {
+    const scope = credential.enterpriseId !== undefined && credential.enterpriseId !== ''
+      ? credential.enterpriseId
+      : 'personal'
+    const response = await fetch(`${chatBase(credential)}/console/enterprises/${scope}/models`, {
       headers: {
         'Authorization': `Bearer ${credential.accessToken}`,
         'Accept': 'application/json',

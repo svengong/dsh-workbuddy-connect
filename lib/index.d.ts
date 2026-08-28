@@ -66,13 +66,21 @@ declare class WorkBuddyUpstreamClient {
   /** POST the token-refresh endpoint; the caller merges the outcome. */
   refreshToken(credential: WorkBuddyCredential): Promise<WorkBuddyRefreshOutcome>;
   /**
-   * GET the model catalog and keep the `cli` agent's models only. When the
-   * credential carries an enterprise id, request the enterprise-scoped
-   * catalog (`/console/enterprises/{enterpriseId}/models`), which includes
-   * enterprise-only models (glm-5.3-flash-ioa, gpt-5.6-*, claude-*, …) the
-   * personal endpoint omits; otherwise fall back to the personal catalog.
+   * The `cli` agent's model catalog, read from the local product-config cache
+   * (`~/.workbuddy/cache/acc-product-config-v3.json`) — the desktop app's
+   * on-disk mirror of `/v3/config`, and the same document its own model picker
+   * renders from.
+   *
+   * Catalog discovery is deliberately local: it needs no credential and makes
+   * no network call, and it cannot drift from the desktop app's list. The
+   * enterprise `/console/enterprises/{id}/models` endpoint is not used because
+   * it returns a narrower catalog that omits cli-only models such as
+   * `hy4-preview-ioa` and `echo`.
+   *
+   * Throws when the cache is missing or unparsable; callers fall back to the
+   * static catalog, which is why the message names the desktop app.
    */
-  fetchModels(credential: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]>;
+  fetchModels(): Promise<readonly WorkBuddyUpstreamModel[]>;
   /** POST the billing endpoint for the aggregated remaining credit. */
   fetchCredits(credential: WorkBuddyCredential): Promise<WorkBuddyCredits>;
 }

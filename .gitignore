@@ -1,4 +1,7 @@
 node_modules/
+.pnpm-store/
+# pnpm writes this allowBuilds prompt stub; it is machine-local, not project config.
+pnpm-workspace.yaml
 coverage/
 *.log
 .DS_Store

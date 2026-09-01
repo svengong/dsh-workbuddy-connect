@@ -93,6 +93,13 @@ function toModel(raw: unknown): WorkBuddyUpstreamModel | undefined {
     maxTokens,
     supportsReasoning: record['supportsReasoning'] === true,
     ...reasoning === undefined ? {} : { reasoning },
+    // The cache is the desktop app's own mirror of `/v3/config` and carries
+    // both fields, so image support is read exactly as the upstream network
+    // catalog would declare it. `disabledMultimodal` is a master switch that
+    // overrides the per-model flag; a missing `supportsImages` means unknown
+    // capability, and over-claiming admits an image the provider then rejects
+    // after the message is already durable — so it resolves to text-only.
+    supportsImages: record['supportsImages'] === true && record['disabledMultimodal'] !== true,
   }
 }
 

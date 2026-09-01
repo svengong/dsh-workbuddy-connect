@@ -44,7 +44,7 @@ describe('WorkBuddy Host settings integration', () => {
     const configPath = join(root, 'acc-product-config-v3.json')
     await writeFile(configPath, JSON.stringify({
       models: [
-        { id: 'auto', name: 'Auto', maxInputTokens: 168_000, maxOutputTokens: 32_000, reasoning: { effort: 'high' } },
+        { id: 'auto', name: 'Auto', maxInputTokens: 168_000, maxOutputTokens: 32_000, reasoning: { effort: 'high' }, supportsImages: true },
         {
           id: 'deepseek-v4-pro-ioa',
           name: 'DeepSeek V4 Pro',
@@ -52,8 +52,10 @@ describe('WorkBuddy Host settings integration', () => {
           maxOutputTokens: 64_000,
           reasoning: { defaultEffort: 'high', supportedEfforts: ['low', 'high'] },
         },
+        // Text-only: the flag is absent upstream, which resolves to text-only.
+        { id: 'glm-5.1', name: 'GLM-5.1', maxInputTokens: 200_000, maxOutputTokens: 48_000 },
       ],
-      agents: [{ name: 'cli', description: 'cli agent', models: ['auto', 'deepseek-v4-pro-ioa'] }],
+      agents: [{ name: 'cli', description: 'cli agent', models: ['auto', 'deepseek-v4-pro-ioa', 'glm-5.1'] }],
     }), 'utf8')
     vi.stubEnv('ACC_PRODUCT_CONFIG_PATH', configPath)
 
@@ -83,7 +85,7 @@ describe('WorkBuddy Host settings integration', () => {
     expect(models.map(model => model.id)).toContain('auto')
     expect(models.map(model => model.id)).toContain('deepseek-v4-pro-ioa')
 
-    // Image modalities follow the per-model catalog flag (fallback list here):
+    // Image modalities follow the per-model catalog flag (fixture list here):
     // image-capable entries expose `image`, glm-5.1 stays text-only.
     const modalities = new Map(models.map(model => [model.id, model.inputModalities]))
     expect(modalities.get('auto')).toContain('image')

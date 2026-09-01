@@ -93,6 +93,29 @@ describe('parseProductConfig', () => {
     expect(model?.reasoning).toEqual(reasoning)
   })
 
+  it('propagates supportsImages per model, treating unknown or disabled as text-only', () => {
+    const text = document({
+      models: [
+        entry('m-img', { supportsImages: true }),
+        // disabledMultimodal is a master switch: it overrides the per-model flag.
+        entry('m-muted', { supportsImages: true, disabledMultimodal: true }),
+        entry('m-text', { supportsImages: false }),
+        entry('m-unknown'),
+      ],
+      agents: [{ name: 'cli', models: ['m-img', 'm-muted', 'm-text', 'm-unknown'] }],
+    })
+
+    const models = parseProductConfig(text)
+    const byId = new Map(models.map(model => [model.id, model]))
+
+    expect(models).toHaveLength(4)
+    expect(byId.get('m-img')?.supportsImages).toBe(true)
+    expect(byId.get('m-muted')?.supportsImages).toBe(false)
+    expect(byId.get('m-text')?.supportsImages).toBe(false)
+    // Absent field means unknown capability; the conservative answer is text-only.
+    expect(byId.get('m-unknown')?.supportsImages).toBe(false)
+  })
+
   it('drops disabled models and models without a usable token budget', () => {
     const text = document({
       models: [
@@ -133,7 +156,7 @@ describe('readProductConfigModels', () => {
     writeFileSync(path, document({ models: [entry('a')] }))
 
     await expect(readProductConfigModels(path)).resolves.toEqual([
-      { id: 'a', name: 'a', contextWindow: 200_000, maxTokens: 32_000, supportsReasoning: false },
+      { id: 'a', name: 'a', contextWindow: 200_000, maxTokens: 32_000, supportsReasoning: false, supportsImages: false },
     ])
   })
 

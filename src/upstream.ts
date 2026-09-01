@@ -32,6 +32,12 @@ export interface WorkBuddyUpstreamModel {
   supportsReasoning?: boolean
   /** Raw upstream `reasoning` object (effort / defaultEffort / supportedEfforts / …). */
   reasoning?: Record<string, unknown>
+  /**
+   * Upstream-declared image input capability. Missing or false upstream data
+   * resolves to false, so an unknown model stays text-only: over-claiming
+   * admits an image the provider then rejects after the message is durable.
+   */
+  supportsImages: boolean
 }
 
 /** One billing package and its remaining credit. */

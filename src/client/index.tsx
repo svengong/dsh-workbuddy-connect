@@ -1,8 +1,14 @@
 /** Browser half: WorkBuddy account status inside Plugin configuration. */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// `dsh-client-*` 0.1.2-alpha.5 retired the `dsh-client-runtime` package: the
+// browser plugin context is cordis' own `Context` now, and the services it
+// carries come from the packages that own them. `locale` rides on
+// `dsh-client-locale`, `slots` on the renderer — both type-only, since at
+// runtime the platform's own client modules provide them.
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { WorkBuddyPluginCard } from './WorkBuddyPluginCard.tsx'
 import type { WorkBuddyPluginCardInjected } from './WorkBuddyPluginCard.tsx'

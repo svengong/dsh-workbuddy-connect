@@ -7,7 +7,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-attachment'
 import { WorkBuddyCredentialStore } from './auth.ts'
 import { WorkBuddyCatalog } from './catalog.ts'
@@ -62,8 +62,15 @@ export const name = 'llm-workbuddy-connect-oo'
 /** The model registry required before the provider can register. */
 export const inject = ['llm']
 
-/** Settings namespace reserved for the future configuration card. */
-export const WORKBUDDY_SETTINGS_NS = settingsNamespace('workbuddy-oo')
+/**
+ * Settings namespace reserved for the configuration card.
+ *
+ * A bare string since `dsh-settings` 0.1.2-alpha.5 dropped the
+ * `settingsNamespace()` brand factory; the namespace stays a nominal
+ * `SettingsNamespace` at the type level so provider/directory joins and the
+ * settings descriptors keep comparing by identity.
+ */
+export const WORKBUDDY_SETTINGS_NS = 'workbuddy-oo' as SettingsNamespace
 
 /** Plugin configuration. */
 export interface Config {
@@ -98,12 +105,19 @@ export function apply(ctx: Context, config: Config): void {
   // settings page (settings.describe joins the provider directory), and it
   // keeps the configured auth-file path live across edits.
   let current = () => config
-  installSettingsSection(ctx, WORKBUDDY_SETTINGS_NS, Config, config, {
-    setSource(source) { current = source },
-    onChange() {
-      const next = current().authFile
-      store.setDesktopPath(next)
-    },
+  // Resolved through a runtime inject rather than the declared `inject` list:
+  // `dsh-settings` 0.1.2-alpha.5 replaced the free `installSettingsSection`
+  // helper with the `settings` service's `installSection` method, and the
+  // service is optional. A profile that never provides it (a headless one)
+  // simply keeps the entry-config fallback instead of blocking plugin load.
+  ctx.inject(['settings'], settingsCtx => {
+    settingsCtx.settings.installSection(ctx, WORKBUDDY_SETTINGS_NS, Config, config, {
+      setSource(source) { current = source },
+      onChange() {
+        const next = current().authFile
+        store.setDesktopPath(next)
+      },
+    })
   })
 
   let stopped = false

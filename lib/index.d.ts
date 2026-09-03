@@ -1,6 +1,7 @@
 import z from "@deepseek-ai/schemastery";
 import { PiAiAdapter } from "@deepseek-ai/dsh-llm-pi-ai";
 import { Context } from "@deepseek-ai/cordis";
+import { SettingsNamespace } from "@deepseek-ai/dsh-settings";
 import { AttachmentStore } from "@deepseek-ai/dsh-attachment";
 //#region src/upstream.d.ts
 /** WorkBuddy region selected by the credential's login domain. */
@@ -354,8 +355,15 @@ declare function isHeartbeatProcessAlive(heartbeat: WorkBuddyHostHeartbeat): boo
 declare const name = "llm-workbuddy-connect-oo";
 /** The model registry required before the provider can register. */
 declare const inject: string[];
-/** Settings namespace reserved for the future configuration card. */
-declare const WORKBUDDY_SETTINGS_NS: import("@deepseek-ai/dsh-settings").SettingsNamespace;
+/**
+ * Settings namespace reserved for the configuration card.
+ *
+ * A bare string since `dsh-settings` 0.1.2-alpha.5 dropped the
+ * `settingsNamespace()` brand factory; the namespace stays a nominal
+ * `SettingsNamespace` at the type level so provider/directory joins and the
+ * settings descriptors keep comparing by identity.
+ */
+declare const WORKBUDDY_SETTINGS_NS: SettingsNamespace;
 /** Plugin configuration. */
 interface Config {
   /** Explicit WorkBuddy desktop auth-file path, overriding env and platform defaults. */

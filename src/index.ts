@@ -14,6 +14,7 @@ import { WorkBuddyCatalog } from './catalog.ts'
 import { createWorkBuddyAdapter, WORKBUDDY_PROVIDER } from './adapter.ts'
 import { createWorkBuddyShim } from './shim.ts'
 import { WorkBuddyUpstreamClient } from './upstream.ts'
+import type { WorkBuddyUpstreamModel } from './upstream.ts'
 import { registerWorkBuddyStatusRoute } from './web-status.ts'
 import { clearHostHeartbeat, writeHostHeartbeat } from './host-heartbeat.ts'
 
@@ -37,12 +38,16 @@ export {
 } from './auth.ts'
 export {
   classifyUpstreamError,
+  normalizeCredits,
   prepareChatBody,
   regionOf,
   WorkBuddyUpstreamClient,
   type UpstreamErrorKind,
   type WorkBuddyChatResult,
   type WorkBuddyCredits,
+  type WorkBuddyEffort,
+  type WorkBuddyModelBilling,
+  type WorkBuddyModelReasoning,
   type WorkBuddyRefreshOutcome,
   type WorkBuddyUpstreamModel,
 } from './upstream.ts'
@@ -99,7 +104,7 @@ export function apply(ctx: Context, config: Config): void {
 
   // Same-origin status route backing the Plugin-configuration card; the
   // webServer service is optional (a headless profile serves no browser).
-  ctx.inject(['webServer'], webCtx => registerWorkBuddyStatusRoute(webCtx, { store, client }))
+  ctx.inject(['webServer'], webCtx => registerWorkBuddyStatusRoute(webCtx, { store, client, models: () => catalog.current() }))
 
   // The settings section is what makes the provider visible on the Models
   // settings page (settings.describe joins the provider directory), and it
@@ -184,15 +189,24 @@ export function apply(ctx: Context, config: Config): void {
 
       void (async () => {
         try {
-          const credential = await store.current()
-          if (credential === undefined || stopped) return
-          const models = await client.fetchModels()
+          // The local cache tier needs no credential, so the provider tracks
+          // the desktop app's catalog even while signed out; the network tier
+          // is only reachable with a credential, and a cache miss with no
+          // credential keeps the static fallback list.
+          let models: readonly WorkBuddyUpstreamModel[]
+          try {
+            models = await client.fetchModels()
+          } catch (cacheError: unknown) {
+            const credential = await store.current()
+            if (credential === undefined) throw cacheError
+            models = await client.fetchModels(credential)
+          }
           if (stopped) return
           catalog.set([...models])
           invalidate?.()
         } catch (error: unknown) {
           ctx.logger.warn(
-            'dsh-workbuddy-connect: local model catalog cache unavailable; serving the static fallback list',
+            'dsh-workbuddy-connect: model catalog unavailable (local cache and network both failed); serving the static fallback list',
             error,
           )
         }

@@ -20,6 +20,11 @@
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+// Circular with upstream.ts by design: upstream owns the catalog-row parsing
+// helpers (reasoning / billing), v3-config owns the local cache reader, and
+// both only call into each other at runtime — never at module-eval time — so
+// the ESM live bindings resolve fine in the bundler and in vitest.
+import { resolveUpstreamBilling, resolveUpstreamReasoning } from './upstream.ts'
 import type { WorkBuddyUpstreamModel } from './upstream.ts'
 
 /** Basename of the cached `/v3/config` product document. */
@@ -85,14 +90,17 @@ function toModel(raw: unknown): WorkBuddyUpstreamModel | undefined {
   const maxTokens = positiveNumber(record['maxOutputTokens'])
   if (contextWindow === undefined || maxTokens === undefined) return undefined
   const name = typeof record['name'] === 'string' && record['name'] !== '' ? record['name'] : id
-  const reasoning = asRecord(record['reasoning'])
   return {
     id,
     name,
     contextWindow,
     maxTokens,
-    supportsReasoning: record['supportsReasoning'] === true,
-    ...reasoning === undefined ? {} : { reasoning },
+    // The cache rows carry the same `supportsReasoning` / `reasoning` /
+    // `credits` / `tags` fields the network catalog serves, so the reasoning
+    // and billing metadata is parsed through the very helpers the network
+    // path uses — one shape, two sources.
+    ...resolveUpstreamReasoning(record),
+    ...resolveUpstreamBilling(record),
     // The cache is the desktop app's own mirror of `/v3/config` and carries
     // both fields, so image support is read exactly as the upstream network
     // catalog would declare it. `disabledMultimodal` is a master switch that

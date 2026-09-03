@@ -1,6 +1,20 @@
+import { rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { WorkBuddyCredential } from '../src/auth.ts'
-import { WorkBuddyUpstreamClient } from '../src/upstream.ts'
+import { normalizeCredits, WorkBuddyUpstreamClient } from '../src/upstream.ts'
+
+let fixturePath: string | undefined
+
+afterEach(async () => {
+  vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
+  if (fixturePath !== undefined) {
+    await rm(fixturePath, { force: true })
+    fixturePath = undefined
+  }
+})
 
 /**
  * Offline unit tests for WorkBuddyUpstreamClient, mocking the global `fetch`
@@ -42,16 +56,140 @@ function fakeResponse(body: string, ok = true, status = 200): Response {
   } as unknown as Response
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals()
-})
-
 /**
- * `fetchModels` no longer performs a network call — it reads the desktop app's
- * cached `/v3/config` document, so its catalog-parsing coverage (including the
- * per-model `supportsImages` / `disabledMultimodal` resolution) now lives in
- * `tests/v3-config.spec.ts`. Only the credentialed endpoints remain here.
+ * `fetchModels` reads the desktop app's cached `/v3/config` document first and
+ * only falls back to the network catalog when the cache is unreadable. The
+ * cache tier's parsing coverage lives in `tests/v3-config.spec.ts`; the tests
+ * below pin `ACC_PRODUCT_CONFIG_PATH` to a missing file so the network tier is
+ * the one under test. Only the credentialed endpoints remain here.
  */
+/** Point the local product-config cache at a path that cannot exist. */
+function missProductConfigCache(): void {
+  vi.stubEnv('ACC_PRODUCT_CONFIG_PATH', '/nonexistent/acc-product-config-v3.json')
+}
+
+describe('WorkBuddyUpstreamClient.fetchModels', () => {
+  /** Build the models-catalog envelope that `fetchModels` unwraps. */
+  function modelsEnvelope(models: unknown[], cliIds: string[]): string {
+    return JSON.stringify({
+      code: 0,
+      msg: 'ok',
+      data: {
+        models,
+        agents: [{ name: 'cli', models: cliIds }],
+      },
+    })
+  }
+
+  it('propagates supportsImages per model, treating unknown or disabled as text-only', async () => {
+    missProductConfigCache()
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(modelsEnvelope([
+      { id: 'm-img', name: 'Image Model', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true },
+      { id: 'm-muted', name: 'Multimodal Switched Off', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true, disabledMultimodal: true },
+      { id: 'm-text', name: 'Text Model', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: false },
+      { id: 'm-unknown', name: 'No Modality Field', maxInputTokens: 100_000, maxOutputTokens: 32_000 },
+      { id: 'm-noncli', name: 'Not A CLI Model', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true },
+    ], ['m-img', 'm-muted', 'm-text', 'm-unknown']))))
+
+    const models = await new WorkBuddyUpstreamClient().fetchModels(CREDENTIAL)
+    const byId = new Map(models.map(model => [model.id, model]))
+
+    expect(models).toHaveLength(4)
+    expect(byId.get('m-img')?.supportsImages).toBe(true)
+    expect(byId.get('m-muted')?.supportsImages).toBe(false)
+    expect(byId.get('m-text')?.supportsImages).toBe(false)
+    // Absent field means unknown capability; the conservative answer is text-only.
+    expect(byId.get('m-unknown')?.supportsImages).toBe(false)
+  })
+
+  it('keeps the catalog shape (name, contextWindow, maxTokens) alongside the flag', async () => {
+    missProductConfigCache()
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(modelsEnvelope([
+      { id: 'm-1', name: 'Model One', maxInputTokens: 168_000, maxOutputTokens: 32_000, supportsImages: true },
+    ], ['m-1']))))
+
+    const models = await new WorkBuddyUpstreamClient().fetchModels(CREDENTIAL)
+    expect(models).toHaveLength(1)
+    expect(models[0]).toEqual({
+      id: 'm-1',
+      name: 'Model One',
+      contextWindow: 168_000,
+      maxTokens: 32_000,
+      supportsImages: true,
+      reasoning: { supports: false, onlyReasoning: false, canDisableThinking: true },
+      billing: { free: false },
+    })
+  })
+
+  it('parses reasoning and billing metadata from the upstream fields', async () => {
+    missProductConfigCache()
+    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(modelsEnvelope([
+      {
+        id: 'm-reason',
+        name: 'Reasoner',
+        maxInputTokens: 100_000, maxOutputTokens: 32_000,
+        supportsReasoning: true,
+        reasoning: { supportedEfforts: ['low', 'high', 'xhigh'], defaultEffort: 'high', canDisableThinking: true },
+      },
+      {
+        id: 'm-free',
+        name: 'Freebie',
+        maxInputTokens: 100_000, maxOutputTokens: 32_000,
+        supportsReasoning: true,
+        onlyReasoning: true,
+        reasoning: { canDisableThinking: false },
+        credits: 'x0.00',
+        tags: ['craft', 'badge:限时免费:#FF0000'],
+      },
+      {
+        id: 'm-plain',
+        name: 'Plain',
+        maxInputTokens: 100_000, maxOutputTokens: 32_000,
+      },
+    ], ['m-reason', 'm-free', 'm-plain']))))
+
+    const models = await new WorkBuddyUpstreamClient().fetchModels(CREDENTIAL)
+    const byId = new Map(models.map(model => [model.id, model]))
+
+    expect(byId.get('m-reason')?.reasoning).toEqual({
+      supports: true,
+      onlyReasoning: false,
+      supportedEfforts: ['low', 'high', 'xhigh'],
+      defaultEffort: 'high',
+      canDisableThinking: true,
+    })
+    expect(byId.get('m-free')?.reasoning).toEqual({
+      supports: true,
+      onlyReasoning: true,
+      canDisableThinking: false,
+    })
+    expect(byId.get('m-free')?.billing).toEqual({ credits: 'x0.00', badges: ['限时免费'], free: true })
+    // A model with no reasoning or billing fields is explicitly non-reasoning
+    // (supports: false) and carries no free/badge facts.
+    expect(byId.get('m-plain')?.reasoning).toEqual({
+      supports: false,
+      onlyReasoning: false,
+      canDisableThinking: true,
+    })
+    expect(byId.get('m-plain')?.billing).toEqual({ free: false })
+  })
+
+  it('serves the local cache tier without a credential and without any network call', async () => {
+    fixturePath = join(tmpdir(), 'dsh-workbuddy-connect-upstream-cache.json')
+    await writeFile(fixturePath, JSON.stringify({
+      models: [{ id: 'cached-model', name: 'Cached', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true }],
+      agents: [{ name: 'cli', description: 'cli agent', models: ['cached-model'] }],
+    }), 'utf8')
+    vi.stubEnv('ACC_PRODUCT_CONFIG_PATH', fixturePath)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    const models = await new WorkBuddyUpstreamClient().fetchModels()
+
+    expect(models.map(model => model.id)).toEqual(['cached-model'])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
 
 describe('WorkBuddyUpstreamClient.fetchCredits', () => {
   it('unwraps the nested envelope and aggregates total across accounts', async () => {
@@ -161,5 +299,30 @@ describe('WorkBuddyUpstreamClient.fetchCredits', () => {
     vi.stubGlobal('fetch', vi.fn(async () => fakeResponse('not json')))
 
     await expect(new WorkBuddyUpstreamClient().fetchCredits(CREDENTIAL)).rejects.toThrow(/non-JSON/)
+  })
+})
+
+describe('normalizeCredits', () => {
+  it('keeps a bare multiplier untouched', () => {
+    expect(normalizeCredits('x0.79')).toBe('x0.79')
+    expect(normalizeCredits('x0.00')).toBe('x0.00')
+  })
+
+  it('strips a trailing credits unit word', () => {
+    expect(normalizeCredits('x0.79 credits')).toBe('x0.79')
+    expect(normalizeCredits('x1.62 credits')).toBe('x1.62')
+    expect(normalizeCredits('x0.79 CREDITS')).toBe('x0.79')
+    expect(normalizeCredits('x0.79 credit')).toBe('x0.79')
+  })
+
+  it('trims surrounding whitespace', () => {
+    expect(normalizeCredits('  x0.79 credits  ')).toBe('x0.79')
+  })
+
+  it('returns undefined for absent or empty values', () => {
+    expect(normalizeCredits(undefined)).toBeUndefined()
+    expect(normalizeCredits('')).toBeUndefined()
+    expect(normalizeCredits('   ')).toBeUndefined()
+    expect(normalizeCredits('credits')).toBeUndefined()
   })
 })

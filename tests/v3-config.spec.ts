@@ -84,13 +84,49 @@ describe('parseProductConfig', () => {
     expect(viaWindow[0]?.contextWindow).toBe(256_000)
   })
 
-  it('carries the reasoning block through untouched', () => {
-    const reasoning = { defaultEffort: 'high', supportedEfforts: ['low', 'high'] }
-    const text = document({ models: [entry('a', { reasoning, supportsReasoning: true })] })
+  it('parses the reasoning block into the typed shape (old-form effort included)', () => {
+    const text = document({
+      models: [
+        // New-form row: a declared effort set plus the disable switch.
+        entry('m-set', { supportsReasoning: true, reasoning: { defaultEffort: 'high', supportedEfforts: ['low', 'high'], canDisableThinking: true } }),
+        // Old-form row: a bare `effort` default, no declared set.
+        entry('m-old', { supportsReasoning: true, reasoning: { effort: 'high', summary: 'auto' } }),
+      ],
+      agents: [{ name: 'cli', models: ['m-set', 'm-old'] }],
+    })
 
-    const model = parseProductConfig(text)[0]
-    expect(model?.supportsReasoning).toBe(true)
-    expect(model?.reasoning).toEqual(reasoning)
+    const byId = new Map(parseProductConfig(text).map(model => [model.id, model]))
+    expect(byId.get('m-set')?.reasoning).toEqual({
+      supports: true,
+      onlyReasoning: false,
+      supportedEfforts: ['low', 'high'],
+      defaultEffort: 'high',
+      canDisableThinking: true,
+    })
+    // The old `effort` spelling is normalized into `defaultEffort`, and an
+    // absent canDisableThinking stays conservative (false).
+    expect(byId.get('m-old')?.reasoning).toEqual({
+      supports: true,
+      onlyReasoning: false,
+      defaultEffort: 'high',
+      canDisableThinking: false,
+    })
+  })
+
+  it('parses billing credits and promo badges from the cache rows', () => {
+    const text = document({
+      models: [
+        entry('m-billed', { credits: 'x0.79 credits', tags: ['craft', 'badge:夜间折扣:#1E90FF'] }),
+        entry('m-free', { credits: 'x0.00', tags: ['badge:限时免费:#FF0000'] }),
+        entry('m-plain'),
+      ],
+      agents: [{ name: 'cli', models: ['m-billed', 'm-free', 'm-plain'] }],
+    })
+
+    const byId = new Map(parseProductConfig(text).map(model => [model.id, model]))
+    expect(byId.get('m-billed')?.billing).toEqual({ credits: 'x0.79 credits', badges: ['夜间折扣'], free: false })
+    expect(byId.get('m-free')?.billing).toEqual({ credits: 'x0.00', badges: ['限时免费'], free: true })
+    expect(byId.get('m-plain')?.billing).toEqual({ free: false })
   })
 
   it('propagates supportsImages per model, treating unknown or disabled as text-only', () => {
@@ -156,7 +192,15 @@ describe('readProductConfigModels', () => {
     writeFileSync(path, document({ models: [entry('a')] }))
 
     await expect(readProductConfigModels(path)).resolves.toEqual([
-      { id: 'a', name: 'a', contextWindow: 200_000, maxTokens: 32_000, supportsReasoning: false, supportsImages: false },
+      {
+        id: 'a',
+        name: 'a',
+        contextWindow: 200_000,
+        maxTokens: 32_000,
+        supportsImages: false,
+        reasoning: { supports: false, onlyReasoning: false, canDisableThinking: true },
+        billing: { free: false },
+      },
     ])
   })
 

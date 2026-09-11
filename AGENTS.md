@@ -11,8 +11,12 @@
 - **插件身份**：包名 `dsh-workbuddy-connect-oo`，provider 路由 `workbuddy-oo`，bin 名同步改名；与上游插件可并存不冲突。
 - **模型目录来源**：`fetchModels()` 两级——优先读本地 `/v3/config` 缓存（`~/.workbuddy/cache/acc-product-config-v3.json`，可用 `ACC_PRODUCT_CONFIG_PATH` 覆盖，无需凭据），缓存不可读时回退网络端点 `/console/enterprises/personal/models`（需凭据，目录更窄，缺 `hy4-preview-ioa`、`echo` 等 cli-only 模型），两级皆败才用静态兜底目录。
   - **合上游时的坑**：上游对模型字段的改动（如 v0.2.5 的 `supportsImages`、v0.2.6 的 reasoning/billing 解析）落在网络解析分支里，直接合并会静默失效——必须同步补进 `src/v3-config.ts` 的 `toModel()`（v0.3.1 起两者共用 `resolveUpstreamReasoning` / `resolveUpstreamBilling`，一处解析两处生效）。
-- **推理强度透传**：`src/adapter.ts` 按三优先级解析档位（后端 `supportedEfforts` → 内置 `BUILTIN_THINKING_LEVEL_MAP` → 固定 `effort` 单档），并带 `deepseek -ioa` 档位补全。v0.3.1 合并上游 v0.2.6 后的语义：**声明集模型**恰好暴露声明的档位、`off` 仅当 `canDisableThinking:true`（与上游一致）；**旧形态模型**（`{effort, summary}`，无声明集）保留本 fork 的单档策略——只暴露默认 effort 一档（上游 v0.2.6 是完全不暴露控件；其 alpha 分支实测旧形态上游接受完整档位集 low/medium/high/xhigh/max 全 200，但桌面端对旧形态模型逐模型区别显示控件，可选集是客户端私有知识，单档是「暴露控件但只给安全值」的折中）。
+- **推理强度透传**：`src/adapter.ts` 按三优先级解析档位（后端 `supportedEfforts` → 内置 `BUILTIN_THINKING_LEVEL_MAP` → 固定 `effort` 单档），并带 `deepseek -ioa` 档位补全。v0.3.1 合并上游 v0.2.6 后的语义：**声明集模型**恰好暴露声明的档位——`off` 亦然，它必须由上游 `supportedEfforts` 声明，`canDisableThinking` 无权单独授权（否则每次默认请求都会发 `reasoning_effort:"off"` 被上游 400 拒绝，见「未发布修复」）；**旧形态模型**（`{effort, summary}`，无声明集）保留本 fork 的单档策略——只暴露默认 effort 一档（上游 v0.2.6 是完全不暴露控件；其 alpha 分支实测旧形态上游接受完整档位集 low/medium/high/xhigh/max 全 200，但桌面端对旧形态模型逐模型区别显示控件，可选集是客户端私有知识，单档是「暴露控件但只给安全值」的折中）。
 - **上游请求身份**：UA 用 `WorkBuddy/5.3.14` 并附 `X-IDE-*` 头；按 `enterpriseId` 走企业模型端点。
+
+## 未发布修复
+
+- **默认档位 400（code 11150）修复**：`toPiModel` 曾把 `canDisableThinking: true` 的模型的 `thinkingLevelMap.off` 映射成字符串 `'off'`。pi-ai 对 `off` 的语义是「未选档位时发送 `thinkingLevelMap.off`」（`openai-completions.js` 的 `typeof offValue === "string"` 分支），于是每次不带显式档位的请求都会发 `reasoning_effort: "off"` —— 上游按模型的 `supportedEfforts` 严格校验（`deepseek-v4.1-flash` 只声明 `['low','high','max']`），返回 HTTP 400 code 11150 "the reasoning effort value is not supported by the current model"。`hy4-preview-ioa` 不出问题是因为它 `canDisableThinking: false` → `map.off = null` → 不发字段。修复：`off` 只在上游 `supportedEfforts` 真的声明它时才映射（`WorkBuddyEffort` 词表同步收编 `'off'`，参考 workbuddy2api 的 `effortRank`）；`canDisableThinking` 降级为纯上游事实镜像，不再参与档位暴露。桌面端 CLI 的关闭语义是「删除 `reasoning_effort`」而非发 `off`（`ThinkingFormatTranslatorRule` 的 `deepseek` 分支 / `configureThinkingSettings`），与此一致。已验证：修复后无档位请求不再带 `reasoning_effort`，显式 low/high/max 正常透传（pi-ai 0.84.4 与运行时 0.85.1 的 `getSupportedThinkingLevels` / off 分支逻辑一致）。
 
 ## 最近发布
 

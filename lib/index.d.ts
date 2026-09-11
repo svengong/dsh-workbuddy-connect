@@ -50,11 +50,26 @@ interface WorkBuddyModelReasoning {
   supportedEfforts?: readonly WorkBuddyEffort[];
   /** Default effort the upstream uses when none is chosen. */
   defaultEffort?: WorkBuddyEffort;
-  /** Whether thinking can be switched off; false means it is always on. */
+  /**
+   * Whether the model can be switched to non-thinking (upstream
+   * `canDisableThinking`). Mirrored as an upstream fact; it does not gate the
+   * offered effort ladder — the desktop app's own rule is
+   * `!onlyReasoning && canDisableThinking !== false`, and switching thinking
+   * off travels as *omitting* `reasoning_effort`, never as an undeclared wire
+   * value (see `toPiModel` in adapter.ts).
+   */
   canDisableThinking: boolean;
 }
-/** The concrete effort spellings WorkBuddy exposes on the wire. */
-type WorkBuddyEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+/**
+ * The concrete effort spellings WorkBuddy exposes on the wire.
+ *
+ * `off` is part of the vocabulary (rank 0 in workbuddy2api's ladder) but is
+ * *not* a universal switch: the upstream validates `reasoning_effort` against
+ * each model's declared `supportedEfforts`, and every model observed so far
+ * declares only thinking tiers. A declared `off` therefore travels as the
+ * literal wire value; an undeclared one must never be manufactured.
+ */
+type WorkBuddyEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 /** Billing convenience metadata reported for one model. */
 interface WorkBuddyModelBilling {
   /** Credits multiplier, e.g. `"x0.00"` (free) or `"x0.79"`. */

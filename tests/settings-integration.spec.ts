@@ -120,10 +120,13 @@ describe('WorkBuddy Host settings integration', () => {
     expect(byId.get('glm-5.1')?.description).toBeUndefined()
 
     // Thinking controls: a declared `supportedEfforts` set offers exactly the
-    // declared values, plus `off` when the model reports thinking can be
-    // disabled — an undeclared value risks a 400, so nothing else is offered.
+    // declared values — nothing else. `off` is not auto-added for
+    // `canDisableThinking` models: pi-ai sends `thinkingLevelMap.off` as the
+    // literal `reasoning_effort` on every request that names no level, and the
+    // upstream rejects any value outside the model's declared set (HTTP 400
+    // code 11150), so an undeclared `off` breaks the default request.
     const proResolved = await ctx.llm.resolveModelInfo('workbuddy-oo', 'deepseek-v4-pro-ioa')
-    expect(proResolved.reasoning?.efforts.map(effort => effort.id).sort()).toEqual(['high', 'low', 'off'])
+    expect(proResolved.reasoning?.efforts.map(effort => effort.id).sort()).toEqual(['high', 'low'])
     // Old-form rows (`{effort, summary}`, no declared set) keep this fork's
     // calibrated single-tier policy: exactly the default effort is offered.
     // (Upstream v0.2.6 exposes no control at all for these rows — a

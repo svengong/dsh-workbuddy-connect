@@ -26,7 +26,7 @@ export const FALLBACK_WORKBUDDY_MODELS: readonly WorkBuddyModelInfo[] = [
   // Old-form reasoning rows (`{effort, summary}`, no `supportedEfforts`): the
   // upstream does not restrict their effort ladder, and most reject `off`, so
   // they carry a default effort, `canDisableThinking: false`, and no explicit
-  // effort set (the adapter offers the full standard ladder).
+  // effort set (the adapter offers exactly the default effort as a single tier).
   { id: 'auto', name: 'Auto', contextWindow: 168_000, maxTokens: 32_000, supportsImages: true, reasoning: { supports: true, onlyReasoning: true, defaultEffort: 'high', canDisableThinking: false }, billing: { free: false } },
   { id: 'hy3', name: 'Hy3', contextWindow: 192_000, maxTokens: 64_000, supportsImages: true, reasoning: { supports: true, onlyReasoning: true, defaultEffort: 'high', canDisableThinking: false }, billing: { credits: 'x0.00', badges: ['限时免费'], free: true } },
   { id: 'glm-5.2', name: 'GLM-5.2', contextWindow: 1_000_000, maxTokens: 48_000, supportsImages: true, reasoning: { supports: true, onlyReasoning: true, defaultEffort: 'medium', canDisableThinking: false }, billing: { credits: 'x0.79 credits', badges: ['夜间折扣'], free: false } },

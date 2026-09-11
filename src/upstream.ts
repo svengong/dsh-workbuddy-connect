@@ -65,12 +65,27 @@ export interface WorkBuddyModelReasoning {
   supportedEfforts?: readonly WorkBuddyEffort[]
   /** Default effort the upstream uses when none is chosen. */
   defaultEffort?: WorkBuddyEffort
-  /** Whether thinking can be switched off; false means it is always on. */
+  /**
+   * Whether the model can be switched to non-thinking (upstream
+   * `canDisableThinking`). Mirrored as an upstream fact; it does not gate the
+   * offered effort ladder — the desktop app's own rule is
+   * `!onlyReasoning && canDisableThinking !== false`, and switching thinking
+   * off travels as *omitting* `reasoning_effort`, never as an undeclared wire
+   * value (see `toPiModel` in adapter.ts).
+   */
   canDisableThinking: boolean
 }
 
-/** The concrete effort spellings WorkBuddy exposes on the wire. */
-export type WorkBuddyEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+/**
+ * The concrete effort spellings WorkBuddy exposes on the wire.
+ *
+ * `off` is part of the vocabulary (rank 0 in workbuddy2api's ladder) but is
+ * *not* a universal switch: the upstream validates `reasoning_effort` against
+ * each model's declared `supportedEfforts`, and every model observed so far
+ * declares only thinking tiers. A declared `off` therefore travels as the
+ * literal wire value; an undeclared one must never be manufactured.
+ */
+export type WorkBuddyEffort = 'off' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 /** Billing convenience metadata reported for one model. */
 export interface WorkBuddyModelBilling {
@@ -125,7 +140,7 @@ const HARD_CREDIT_MARKERS: readonly string[] = [
 ]
 
 /** The concrete effort spellings WorkBuddy exposes on the wire. */
-const EFFORT_VALUES: readonly WorkBuddyEffort[] = ['low', 'medium', 'high', 'xhigh', 'max']
+const EFFORT_VALUES: readonly WorkBuddyEffort[] = ['off', 'low', 'medium', 'high', 'xhigh', 'max']
 
 /** Promotional badge keys the upstream tags carry, minus their color suffix. */
 const BADGE_PREFIX = 'badge:'
@@ -153,9 +168,10 @@ export function resolveUpstreamReasoning(wrapped: Record<string, unknown>): { re
       && (EFFORT_VALUES as readonly string[]).includes(reasoning['effort'] as string)) {
       defaultEffort = reasoning['effort'] as WorkBuddyEffort
     }
-    // Only an explicit `canDisableThinking: true` offers "thinking off"; older
-    // rows omit the field and several of them reject `off` on the wire, so the
-    // conservative default is "cannot be disabled".
+    // Mirrored verbatim; an absent field resolves to false (the conservative
+    // answer). The flag stays advisory for the effort ladder: the offered
+    // levels follow `supportedEfforts`, because the upstream validates
+    // `reasoning_effort` against it.
     canDisableThinking = reasoning['canDisableThinking'] === true
   }
   return {

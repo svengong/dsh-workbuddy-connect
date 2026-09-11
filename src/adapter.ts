@@ -143,9 +143,10 @@ const BUILTIN_THINKING_LEVEL_MAP: Record<string, Record<string, string | null>> 
  *
  * 档位优先级（本 fork 的校准结果，与上游 v0.2.6 的 declared-set-only 策略
  * 的差异是有意的）：
- *   1. 后端下发 supportedEfforts（多档）——恰好提供声明的档位；`off` 仅在
- *      canDisableThinking === true 时提供（undeclared 值有 400 风险，
- *      workbuddy2api 同样按声明集门控）
+ *   1. 后端下发 supportedEfforts（多档）——恰好提供声明的档位，`off` 亦然。
+ *      上游按模型的 supportedEfforts 严格校验 reasoning_effort，未声明的值
+ *      （包括由 canDisableThinking 单独授权出来的 off）会 400，所以只有声明
+ *      集里的档位才映射（workbuddy2api 同样按声明集门控）
  *   2. 内置档位映射（后端未下发档位时的 deepseek 安全网）
  *   3. 固定 effort 单档（老式 `{effort, summary}` 行，如 auto / glm-5.2 /
  *      kimi 系列）——DSH 校验要求 efforts 非空，无法表达「零档位」，故用
@@ -166,12 +167,17 @@ function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
   const fixedEffort = reasoningCfg?.defaultEffort
 
   if (explicit !== undefined && explicit.length > 0) {
-    // 恰好提供声明的档位；`off` 独立于 effort 词表，由 canDisableThinking 决定。
+    // 恰好提供声明的档位。`off` 的语义特殊：pi-ai 把 `thinkingLevelMap.off`
+    // 当作「未选档位时发送的 wire 值」——只要它是字符串，每次没有显式档位的
+    // 请求都会带 `reasoning_effort: "off"`。上游按模型的 supportedEfforts
+    // 严格校验（未声明值 → HTTP 400 code 11150 "the reasoning effort value is
+    // not supported by the current model"），所以 off 只在声明集真的包含它时
+    // 才映射；canDisableThinking 无权单独授权（它描述的是 UI 开关能力，且桌面
+    // 端对关闭的发送方式是「不发 reasoning_effort」，而非发 `off`）。
     thinkingLevelMap = {}
     for (const level of THINKING_LEVELS) {
       thinkingLevelMap[level] = (explicit as readonly string[]).includes(level) ? level : null
     }
-    if (reasoningCfg?.canDisableThinking === true) thinkingLevelMap.off = 'off'
   } else if (builtin !== undefined) {
     thinkingLevelMap = { ...builtin }
   } else if (fixedEffort !== undefined) {

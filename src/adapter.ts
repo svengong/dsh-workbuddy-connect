@@ -9,7 +9,7 @@
 import { createProvider } from '@earendil-works/pi-ai'
 import type { Api, AuthContext, CredentialStore, Model, Provider, ThinkingLevelMap } from '@earendil-works/pi-ai'
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
-import { resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { ReasoningEffortId, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { LlmModelInfo, LlmResolvedModelInfo } from '@deepseek-ai/dsh-llm'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import type { ResolvedPiAiProviderProfile } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -101,6 +101,47 @@ function promoDescription(info: WorkBuddyModelInfo): string | undefined {
 function withRate(name: string, info: WorkBuddyModelInfo): string {
   const rate = normalizeCredits(info.billing?.credits)
   return rate === undefined ? name : `${name}${RATE_SEPARATOR}${rate}`
+}
+
+/**
+ * The effort a model opens with when the caller names none: the
+ * second-highest declared tier, or the only tier when just one is declared.
+ *
+ * DSH materializes `reasoning.defaultEffort` into requests that name no level
+ * and preselects it in the picker — the "provider default" entry is offered
+ * only when the field is absent — so reporting it turns "no level chosen" into
+ * "send this declared level". That is exactly what the WorkBuddy upstream
+ * validates: an omitted `reasoning_effort` falls back to the provider's own
+ * default, a value the catalog never promised, while every declared tier is
+ * accepted by construction.
+ *
+ * The array arrives in pi-ai's ascending `getSupportedThinkingLevels` order
+ * (`off, minimal, low, medium, high, xhigh, max`), so "second-highest" is one
+ * step back from the last non-`off` entry; a lone tier is its own default.
+ */
+function preferredDefaultEffort(
+  efforts: readonly { id: ReasoningEffortId }[],
+): ReasoningEffortId | undefined {
+  const tiers = efforts.filter(effort => (effort.id as string) !== 'off')
+  if (tiers.length === 0) return undefined
+  const chosen = tiers.length === 1 ? tiers[0] : tiers[tiers.length - 2]
+  return chosen?.id
+}
+
+/**
+ * Rewrite one resolved model's reasoning metadata to carry the preferred
+ * opening effort. Only the *default* is touched: the request path still sends
+ * whatever level the caller names, so an explicit user choice always wins.
+ *
+ * Only `resolveModel` can carry this — the list shape has no reasoning field,
+ * and the picker's group catalog is built from resolved answers.
+ */
+function withPreferredEffort(resolved: LlmResolvedModelInfo): LlmResolvedModelInfo {
+  const reasoning = resolved.reasoning
+  if (reasoning === undefined) return resolved
+  const preferred = preferredDefaultEffort(reasoning.efforts)
+  if (preferred === undefined || preferred === reasoning.defaultEffort) return resolved
+  return { ...resolved, reasoning: { ...reasoning, defaultEffort: preferred } }
 }
 
 /** Constructor dependencies. */
@@ -312,9 +353,14 @@ class WorkBuddyPiAiAdapter extends PiAiAdapter {
 
   override async resolveModel(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo> {
     const resolved = await super.resolveModel(provider, model, signal)
+    const withEffort = withPreferredEffort(resolved)
     const info = this.infoFor(model)
-    if (info === undefined) return resolved
+    if (info === undefined) return withEffort
     const promo = promoDescription(info)
-    return { ...resolved, name: withRate(resolved.name, info), ...promo === undefined ? {} : { description: promo } }
+    return {
+      ...withEffort,
+      name: withRate(withEffort.name, info),
+      ...promo === undefined ? {} : { description: promo },
+    }
   }
 }

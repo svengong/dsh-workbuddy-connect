@@ -58,6 +58,14 @@ describe('WorkBuddy Host settings integration', () => {
           reasoning: { defaultEffort: 'high', supportedEfforts: ['low', 'high'], canDisableThinking: true },
         },
         {
+          id: 'm-five-tier',
+          name: 'Five Tier',
+          maxInputTokens: 200_000,
+          maxOutputTokens: 32_000,
+          supportsReasoning: true,
+          reasoning: { defaultEffort: 'high', supportedEfforts: ['low', 'medium', 'high', 'xhigh', 'max'], canDisableThinking: false },
+        },
+        {
           id: 'glm-5.2-ioa',
           name: 'GLM-5.2',
           maxInputTokens: 1_000_000,
@@ -69,7 +77,7 @@ describe('WorkBuddy Host settings integration', () => {
         // Text-only: the flag is absent upstream, which resolves to text-only.
         { id: 'glm-5.1', name: 'GLM-5.1', maxInputTokens: 200_000, maxOutputTokens: 48_000 },
       ],
-      agents: [{ name: 'cli', description: 'cli agent', models: ['auto', 'deepseek-v4-pro-ioa', 'glm-5.2-ioa', 'glm-5.1'] }],
+      agents: [{ name: 'cli', description: 'cli agent', models: ['auto', 'deepseek-v4-pro-ioa', 'm-five-tier', 'glm-5.2-ioa', 'glm-5.1'] }],
     }), 'utf8')
     vi.stubEnv('ACC_PRODUCT_CONFIG_PATH', configPath)
 
@@ -136,6 +144,18 @@ describe('WorkBuddy Host settings integration', () => {
     // A row with no reasoning metadata exposes no thinking control.
     const plainResolved = await ctx.llm.resolveModelInfo('workbuddy-oo', 'glm-5.1')
     expect(plainResolved.reasoning).toBeUndefined()
+
+    // The opening effort is the second-highest declared tier (or the only tier
+    // when one is declared). DSH materializes `defaultEffort` into requests
+    // that name no level, so "nothing chosen" always sends a declared value
+    // instead of relying on the provider's own unlisted default.
+    const fiveTier = await ctx.llm.resolveModelInfo('workbuddy-oo', 'm-five-tier')
+    expect(fiveTier.reasoning?.efforts.map(effort => effort.id)).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect(fiveTier.reasoning?.defaultEffort).toBe('xhigh')
+    // Two declared tiers: the second-highest is the lower one.
+    expect(proResolved.reasoning?.defaultEffort).toBe('low')
+    // A lone tier is its own default.
+    expect(autoResolved.reasoning?.defaultEffort).toBe('high')
 
     // Image modalities follow the per-model catalog flag (fixture list here):
     // image-capable entries expose `image`, glm-5.1 stays text-only.

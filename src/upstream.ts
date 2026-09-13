@@ -498,102 +498,19 @@ export class WorkBuddyUpstreamClient {
   }
 
   /**
-   * The `cli` agent's model catalog, two-tier.
+   * The `cli` agent's model catalog, sourced from a single tier: the local
+   * product-config cache (`~/.workbuddy/cache/acc-product-config-v3.json`) —
+   * the desktop app's on-disk mirror of `/v3/config`, and the same document its
+   * own model picker renders from. It needs no credential, makes no network
+   * call, and carries the full cli roster (including cli-only models such as
+   * `hy4-preview-ioa` and `echo` that the enterprise endpoint omits).
    *
-   * Primary source: the local product-config cache
-   * (`~/.workbuddy/cache/acc-product-config-v3.json`) — the desktop app's
-   * on-disk mirror of `/v3/config`, and the same document its own model picker
-   * renders from. It needs no credential, makes no network call, carries the
-   * full cli roster (including cli-only models such as `hy4-preview-ioa` and
-   * `echo` that the enterprise endpoint omits), and cannot drift from the
-   * desktop app's list — which is why the credential is optional: the cache
-   * tier refreshes the catalog even while signed out.
-   *
-   * Fallback: the personal `/console/enterprises/personal/models` endpoint
-   * (needs the credential). Its catalog is narrower, but it stays fresher than
-   * a stale cache and than the static fallback list when the desktop app has
-   * not run recently. Only when both tiers fail does the caller fall back to
-   * the static catalog.
+   * There is deliberately no network or static fallback: a cache miss throws,
+   * and the caller serves an empty catalog. This keeps the plugin's model list
+   * from ever drifting away from the one the WorkBuddy desktop app shows.
    */
-  async fetchModels(credential?: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]> {
-    let cacheError: unknown
-    try {
-      return await readProductConfigModels()
-    } catch (error: unknown) {
-      cacheError = error
-    }
-    if (credential === undefined) {
-      throw new Error(
-        `workbuddy model catalog unavailable: local product-config cache failed (${String(cacheError)});`
-        + ' no credential for the network catalog — open the WorkBuddy desktop app once so it refreshes',
-      )
-    }
-    try {
-      return await this.fetchModelsFromNetwork(credential)
-    } catch (error: unknown) {
-      throw new Error(
-        `workbuddy model catalog unavailable: local product-config cache failed (${String(cacheError)});`
-        + ` network catalog failed (${String(error)})`,
-      )
-    }
-  }
-
-  /** GET the personal model catalog and keep the `cli` agent's models only. */
-  async fetchModelsFromNetwork(credential: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]> {
-    const response = await fetch(`${chatBase(credential)}/console/enterprises/personal/models`, {
-      headers: {
-        'Authorization': `Bearer ${credential.accessToken}`,
-        'Accept': 'application/json',
-        'Origin': originReferer(credential),
-        'Referer': `${originReferer(credential)}/`,
-        'User-Agent': CLIENT_UA,
-      },
-      signal: AbortSignal.timeout(JSON_TIMEOUT_MS),
-    })
-    const envelope = await readEnvelope(response)
-    if (!response.ok || envelope.code !== 0) throw envelopeError(response.status, envelope)
-    const data = typeof envelope.data === 'object' && envelope.data !== null
-      ? envelope.data as Record<string, unknown>
-      : {}
-    const rawModels = Array.isArray(data['models']) ? data['models'] : []
-    const agents = Array.isArray(data['agents']) ? data['agents'] : []
-    let cliIds: readonly string[] | undefined
-    for (const agent of agents) {
-      if (typeof agent === 'object' && agent !== null) {
-        const wrapped = agent as Record<string, unknown>
-        if (wrapped['name'] === 'cli' && Array.isArray(wrapped['models'])) {
-          cliIds = wrapped['models'].filter((id): id is string => typeof id === 'string')
-          break
-        }
-      }
-    }
-    if (cliIds === undefined || cliIds.length === 0) {
-      throw new Error('workbuddy model catalog lists no cli agent models')
-    }
-    const byId = new Map<string, WorkBuddyUpstreamModel>()
-    for (const model of rawModels) {
-      if (typeof model !== 'object' || model === null) continue
-      const wrapped = model as Record<string, unknown>
-      const id = typeof wrapped['id'] === 'string' ? wrapped['id'] : ''
-      if (id === '' || wrapped['disabled'] === true) continue
-      const input = typeof wrapped['maxInputTokens'] === 'number' ? wrapped['maxInputTokens'] : 0
-      const output = typeof wrapped['maxOutputTokens'] === 'number' ? wrapped['maxOutputTokens'] : 0
-      if (input <= 0 || output <= 0) continue
-      byId.set(id, {
-        id,
-        name: typeof wrapped['name'] === 'string' && wrapped['name'] !== '' ? wrapped['name'] : id,
-        contextWindow: input,
-        maxTokens: output,
-        supportsImages: wrapped['supportsImages'] === true && wrapped['disabledMultimodal'] !== true,
-        ...resolveUpstreamReasoning(wrapped),
-        ...resolveUpstreamBilling(wrapped),
-      })
-    }
-    const models = cliIds
-      .map(id => byId.get(id))
-      .filter((model): model is WorkBuddyUpstreamModel => model !== undefined)
-    if (models.length === 0) throw new Error('workbuddy model catalog resolved to an empty list')
-    return models
+  async fetchModels(): Promise<readonly WorkBuddyUpstreamModel[]> {
+    return await readProductConfigModels()
   }
 
   /** POST the billing endpoint for the aggregated remaining credit. */

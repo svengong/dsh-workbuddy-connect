@@ -149,26 +149,18 @@ declare class WorkBuddyUpstreamClient {
   /** POST the token-refresh endpoint; the caller merges the outcome. */
   refreshToken(credential: WorkBuddyCredential): Promise<WorkBuddyRefreshOutcome>;
   /**
-   * The `cli` agent's model catalog, two-tier.
+   * The `cli` agent's model catalog, sourced from a single tier: the local
+   * product-config cache (`~/.workbuddy/cache/acc-product-config-v3.json`) —
+   * the desktop app's on-disk mirror of `/v3/config`, and the same document its
+   * own model picker renders from. It needs no credential, makes no network
+   * call, and carries the full cli roster (including cli-only models such as
+   * `hy4-preview-ioa` and `echo` that the enterprise endpoint omits).
    *
-   * Primary source: the local product-config cache
-   * (`~/.workbuddy/cache/acc-product-config-v3.json`) — the desktop app's
-   * on-disk mirror of `/v3/config`, and the same document its own model picker
-   * renders from. It needs no credential, makes no network call, carries the
-   * full cli roster (including cli-only models such as `hy4-preview-ioa` and
-   * `echo` that the enterprise endpoint omits), and cannot drift from the
-   * desktop app's list — which is why the credential is optional: the cache
-   * tier refreshes the catalog even while signed out.
-   *
-   * Fallback: the personal `/console/enterprises/personal/models` endpoint
-   * (needs the credential). Its catalog is narrower, but it stays fresher than
-   * a stale cache and than the static fallback list when the desktop app has
-   * not run recently. Only when both tiers fail does the caller fall back to
-   * the static catalog.
+   * There is deliberately no network or static fallback: a cache miss throws,
+   * and the caller serves an empty catalog. This keeps the plugin's model list
+   * from ever drifting away from the one the WorkBuddy desktop app shows.
    */
-  fetchModels(credential?: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]>;
-  /** GET the personal model catalog and keep the `cli` agent's models only. */
-  fetchModelsFromNetwork(credential: WorkBuddyCredential): Promise<readonly WorkBuddyUpstreamModel[]>;
+  fetchModels(): Promise<readonly WorkBuddyUpstreamModel[]>;
   /** POST the billing endpoint for the aggregated remaining credit. */
   fetchCredits(credential: WorkBuddyCredential): Promise<WorkBuddyCredits>;
 }
@@ -290,22 +282,22 @@ declare class WorkBuddyCredentialStore {
 /** One model entry the adapter exposes. */
 type WorkBuddyModelInfo = WorkBuddyUpstreamModel;
 /**
- * Static CLI models observed on the CN endpoint (re-verified against the live
- * catalog 2026-09-01, including the thinking-effort and billing metadata). The
- * upstream refresh replaces this list at startup; it exists so the provider
- * registers with a usable catalog even while the first fetch is in flight or
- * offline.
- *
- * The list tracks the `cli` agent's model roster exactly: the 15 models the
- * desktop CLI offers. Reasoning metadata is taken verbatim from the live
- * endpoint — each model's supported effort set and whether thinking can be
- * disabled — and the `free` flag follows the upstream `x0.00` credits marker.
+ * A static CLI-model list captured from the CN endpoint (re-verified against
+ * the live catalog 2026-09-01). It is kept for diagnostics and as a public
+ * export only: the runtime catalog no longer initializes from it. The model
+ * directory now comes exclusively from the desktop app's local product-config
+ * cache, so an unreadable cache yields an empty catalog — never this stale
+ * list.
  */
 declare const FALLBACK_WORKBUDDY_MODELS: readonly WorkBuddyModelInfo[];
 /** Mutable catalog shared by the shim's `/v1/models` and the adapter. */
 declare class WorkBuddyCatalog {
   private models;
-  /** Current entries; the fallback list until the upstream answer lands. */
+  /**
+   * Current entries. The catalog starts empty and is populated once the local
+   * product-config cache loads; a cache miss keeps it empty rather than
+   * serving the static fallback list, so the picker never shows stale models.
+   */
   current(): readonly WorkBuddyModelInfo[];
   /** Replace the list; callers invalidate their adapter snapshot after this. */
   set(models: readonly WorkBuddyModelInfo[]): void;
@@ -458,10 +450,10 @@ interface Config {
 }
 declare const Config: z<Config>;
 /**
- * Start the loopback endpoint, register the `workbuddy` provider, and
- * refresh the model catalog from the upstream once credentials allow it.
- * The static fallback catalog serves from the first moment, so an offline
- * upstream never leaves the provider empty.
+ * Start the loopback endpoint, register the `workbuddy` provider, and load
+ * the model catalog from the desktop app's local product-config cache before
+ * registration. A cache miss leaves the catalog empty (no network or static
+ * fallback), so the picker never shows a stale model list.
  */
 declare function apply(ctx: Context, config: Config): void;
 //#endregion

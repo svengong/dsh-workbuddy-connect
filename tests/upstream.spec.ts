@@ -57,124 +57,15 @@ function fakeResponse(body: string, ok = true, status = 200): Response {
 }
 
 /**
- * `fetchModels` reads the desktop app's cached `/v3/config` document first and
- * only falls back to the network catalog when the cache is unreadable. The
+ * `fetchModels` reads the `cli` agent's models from the desktop app's cached
+ * `/v3/config` document only — there is no network or static fallback. The
  * cache tier's parsing coverage lives in `tests/v3-config.spec.ts`; the tests
- * below pin `ACC_PRODUCT_CONFIG_PATH` to a missing file so the network tier is
- * the one under test. Only the credentialed endpoints remain here.
+ * below pin `ACC_PRODUCT_CONFIG_PATH` to a fixture (or a missing file) and
+ * assert that the network is never touched.
  */
-/** Point the local product-config cache at a path that cannot exist. */
-function missProductConfigCache(): void {
-  vi.stubEnv('ACC_PRODUCT_CONFIG_PATH', '/nonexistent/acc-product-config-v3.json')
-}
 
 describe('WorkBuddyUpstreamClient.fetchModels', () => {
-  /** Build the models-catalog envelope that `fetchModels` unwraps. */
-  function modelsEnvelope(models: unknown[], cliIds: string[]): string {
-    return JSON.stringify({
-      code: 0,
-      msg: 'ok',
-      data: {
-        models,
-        agents: [{ name: 'cli', models: cliIds }],
-      },
-    })
-  }
-
-  it('propagates supportsImages per model, treating unknown or disabled as text-only', async () => {
-    missProductConfigCache()
-    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(modelsEnvelope([
-      { id: 'm-img', name: 'Image Model', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true },
-      { id: 'm-muted', name: 'Multimodal Switched Off', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true, disabledMultimodal: true },
-      { id: 'm-text', name: 'Text Model', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: false },
-      { id: 'm-unknown', name: 'No Modality Field', maxInputTokens: 100_000, maxOutputTokens: 32_000 },
-      { id: 'm-noncli', name: 'Not A CLI Model', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true },
-    ], ['m-img', 'm-muted', 'm-text', 'm-unknown']))))
-
-    const models = await new WorkBuddyUpstreamClient().fetchModels(CREDENTIAL)
-    const byId = new Map(models.map(model => [model.id, model]))
-
-    expect(models).toHaveLength(4)
-    expect(byId.get('m-img')?.supportsImages).toBe(true)
-    expect(byId.get('m-muted')?.supportsImages).toBe(false)
-    expect(byId.get('m-text')?.supportsImages).toBe(false)
-    // Absent field means unknown capability; the conservative answer is text-only.
-    expect(byId.get('m-unknown')?.supportsImages).toBe(false)
-  })
-
-  it('keeps the catalog shape (name, contextWindow, maxTokens) alongside the flag', async () => {
-    missProductConfigCache()
-    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(modelsEnvelope([
-      { id: 'm-1', name: 'Model One', maxInputTokens: 168_000, maxOutputTokens: 32_000, supportsImages: true },
-    ], ['m-1']))))
-
-    const models = await new WorkBuddyUpstreamClient().fetchModels(CREDENTIAL)
-    expect(models).toHaveLength(1)
-    expect(models[0]).toEqual({
-      id: 'm-1',
-      name: 'Model One',
-      contextWindow: 168_000,
-      maxTokens: 32_000,
-      supportsImages: true,
-      reasoning: { supports: false, onlyReasoning: false, canDisableThinking: true },
-      billing: { free: false },
-    })
-  })
-
-  it('parses reasoning and billing metadata from the upstream fields', async () => {
-    missProductConfigCache()
-    vi.stubGlobal('fetch', vi.fn(async () => fakeResponse(modelsEnvelope([
-      {
-        id: 'm-reason',
-        name: 'Reasoner',
-        maxInputTokens: 100_000, maxOutputTokens: 32_000,
-        supportsReasoning: true,
-        reasoning: { supportedEfforts: ['low', 'high', 'xhigh'], defaultEffort: 'high', canDisableThinking: true },
-      },
-      {
-        id: 'm-free',
-        name: 'Freebie',
-        maxInputTokens: 100_000, maxOutputTokens: 32_000,
-        supportsReasoning: true,
-        onlyReasoning: true,
-        reasoning: { canDisableThinking: false },
-        credits: 'x0.00',
-        tags: ['craft', 'badge:限时免费:#FF0000'],
-      },
-      {
-        id: 'm-plain',
-        name: 'Plain',
-        maxInputTokens: 100_000, maxOutputTokens: 32_000,
-      },
-    ], ['m-reason', 'm-free', 'm-plain']))))
-
-    const models = await new WorkBuddyUpstreamClient().fetchModels(CREDENTIAL)
-    const byId = new Map(models.map(model => [model.id, model]))
-
-    expect(byId.get('m-reason')?.reasoning).toEqual({
-      supports: true,
-      onlyReasoning: false,
-      supportedEfforts: ['low', 'high', 'xhigh'],
-      defaultEffort: 'high',
-      canDisableThinking: true,
-    })
-    expect(byId.get('m-free')?.reasoning).toEqual({
-      supports: true,
-      onlyReasoning: true,
-      canDisableThinking: false,
-    })
-    expect(byId.get('m-free')?.billing).toEqual({ credits: 'x0.00', badges: ['限时免费'], free: true })
-    // A model with no reasoning or billing fields is explicitly non-reasoning
-    // (supports: false) and carries no free/badge facts.
-    expect(byId.get('m-plain')?.reasoning).toEqual({
-      supports: false,
-      onlyReasoning: false,
-      canDisableThinking: true,
-    })
-    expect(byId.get('m-plain')?.billing).toEqual({ free: false })
-  })
-
-  it('serves the local cache tier without a credential and without any network call', async () => {
+  it('reads the cli agent models from the local product-config cache without any network call', async () => {
     fixturePath = join(tmpdir(), 'dsh-workbuddy-connect-upstream-cache.json')
     await writeFile(fixturePath, JSON.stringify({
       models: [{ id: 'cached-model', name: 'Cached', maxInputTokens: 100_000, maxOutputTokens: 32_000, supportsImages: true }],
@@ -187,6 +78,15 @@ describe('WorkBuddyUpstreamClient.fetchModels', () => {
     const models = await new WorkBuddyUpstreamClient().fetchModels()
 
     expect(models.map(model => model.id)).toEqual(['cached-model'])
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('throws when the cache is missing, without touching the network', async () => {
+    vi.stubEnv('ACC_PRODUCT_CONFIG_PATH', '/nonexistent/acc-product-config-v3.json')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(new WorkBuddyUpstreamClient().fetchModels()).rejects.toThrow(/cache unreadable/)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })

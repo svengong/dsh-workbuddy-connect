@@ -69,9 +69,14 @@ async function startShim(upstreamResponse: () => WorkBuddyChatResult): Promise<H
     upstreamBodies: [],
     upstreamResponse,
   }
+  const catalog = new WorkBuddyCatalog()
+  catalog.set([
+    { id: 'auto', name: 'Auto', contextWindow: 168_000, maxTokens: 32_000, supportsImages: true },
+    { id: 'deepseek-v4-pro', name: 'Deepseek-V4-Pro', contextWindow: 1_000_000, maxTokens: 50_000, supportsImages: true },
+  ])
   harness.shim = createWorkBuddyShim({
     store,
-    catalog: new WorkBuddyCatalog(),
+    catalog,
     client: {
       async chatStream(_credential, bodyJson): Promise<WorkBuddyChatResult> {
         harness.upstreamBodies.push(bodyJson)
@@ -95,10 +100,9 @@ describe('WorkBuddy shim', () => {
     const ids = body.data.map(model => model.id)
     expect(ids).toContain('auto')
     expect(ids).toContain('deepseek-v4-pro')
-    // The fallback roster tracks the live `cli` agent's 15 models.
-    expect(ids.length).toBe(15)
-    expect(ids).toContain('hy4-preview')
-    expect(ids).toContain('glm-5.3')
+    // The catalog is populated by the caller (in production, from the local
+    // product-config cache); it starts empty and never serves a static list.
+    expect(ids.length).toBe(2)
   })
 
   it('streams a successful chat completion and normalizes the body', async () => {

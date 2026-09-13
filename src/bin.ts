@@ -5,7 +5,6 @@ import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { WorkBuddyCredentialStore, workbuddyOwnAuthPath } from './auth.ts'
 import { WorkBuddyUpstreamClient } from './upstream.ts'
-import { FALLBACK_WORKBUDDY_MODELS } from './catalog.ts'
 import { WORKBUDDY_CONNECT_VERSION } from './version.ts'
 import { isHeartbeatProcessAlive, readHostHeartbeat, workbuddyHostHeartbeatPath } from './host-heartbeat.ts'
 import { readProductConfigModels, resolveProductConfigPath } from './v3-config.ts'
@@ -45,8 +44,9 @@ function makeStore(): WorkBuddyCredentialStore {
 
 /**
  * Resolve the local model catalog. The list is read from the desktop app's
- * cached product config, so an absent or unparsable cache — not a network or
- * sign-in problem — is why the picker falls back to the static list.
+ * cached product config — the plugin's only model source — so an absent or
+ * unparsable cache (not a network or sign-in problem) is why the picker ends
+ * up empty.
  */
 async function inspectModelCatalog(): Promise<{ path: string; models?: number; error?: string }> {
   const path = resolveProductConfigPath()
@@ -83,13 +83,12 @@ async function doctor(jsonOutput: boolean): Promise<number> {
     },
     modelCatalog,
     signIn: status.state,
-    fallbackModels: FALLBACK_WORKBUDDY_MODELS.length,
     hints: [
       ...status.state === 'signed-in' ? [] : ['Sign in once in the WorkBuddy desktop app, then run status again.'],
       ...desktopPresent ? [] : [`No WorkBuddy desktop auth file at the expected path; set WORKBUDDY_AUTH_FILE if it lives elsewhere.`],
       ...hostAlive ? [] : ['Host bundle not running in this DSH profile (or the process exited). The browser card and provider are unavailable until DSH starts the plugin.'],
       ...modelCatalog.error === undefined ? [] : [
-        `Model catalog falls back to ${FALLBACK_WORKBUDDY_MODELS.length} static models: ${modelCatalog.error}.`
+        `Model catalog is empty: ${modelCatalog.error}.`
         + ' Override the path with ACC_PRODUCT_CONFIG_PATH if the cache lives elsewhere.',
       ],
     ],
@@ -105,7 +104,6 @@ async function doctor(jsonOutput: boolean): Promise<number> {
       modelCatalog.error === undefined
         ? `Model catalog: ${modelCatalog.models} models from ${modelCatalog.path}`
         : `Model catalog: unavailable (${modelCatalog.error})`,
-      `Static fallback models: ${report.fallbackModels}`,
       ...report.hints.map(hint => `Hint: ${hint}`),
       '',
     ].join('\n'))

@@ -14,7 +14,6 @@ import { WorkBuddyCatalog } from './catalog.ts'
 import { createWorkBuddyAdapter, WORKBUDDY_PROVIDER } from './adapter.ts'
 import { createWorkBuddyShim } from './shim.ts'
 import { WorkBuddyUpstreamClient } from './upstream.ts'
-import type { WorkBuddyUpstreamModel } from './upstream.ts'
 import { registerWorkBuddyStatusRoute } from './web-status.ts'
 import { clearHostHeartbeat, writeHostHeartbeat } from './host-heartbeat.ts'
 
@@ -88,10 +87,10 @@ export const Config: z<Config> = z.object({
 })
 
 /**
- * Start the loopback endpoint, register the `workbuddy` provider, and
- * refresh the model catalog from the upstream once credentials allow it.
- * The static fallback catalog serves from the first moment, so an offline
- * upstream never leaves the provider empty.
+ * Start the loopback endpoint, register the `workbuddy` provider, and load
+ * the model catalog from the desktop app's local product-config cache before
+ * registration. A cache miss leaves the catalog empty (no network or static
+ * fallback), so the picker never shows a stale model list.
  */
 export function apply(ctx: Context, config: Config): void {
   const client = new WorkBuddyUpstreamClient()
@@ -133,10 +132,25 @@ export function apply(ctx: Context, config: Config): void {
   })
 
   void shim.ready
-    .then(() => {
+    .then(async () => {
       if (stopped) return
 
-      let invalidate: (() => void) | undefined
+      // The model catalog is sourced from a single tier — the WorkBuddy
+      // desktop app's local product-config cache — so the provider's list
+      // cannot drift from the app's own picker. A cache miss keeps the catalog
+      // empty (no network or static fallback); the provider still registers,
+      // it just offers no models until the app refreshes the cache.
+      try {
+        const models = await client.fetchModels()
+        if (!stopped) catalog.set([...models])
+      } catch (error: unknown) {
+        ctx.logger.error(
+          'dsh-workbuddy-connect: model catalog unavailable (local product-config cache read failed); serving no models',
+          error,
+        )
+      }
+      if (stopped) return
+
       try {
         // Constructed only once the listener holds a port: the provider's
         // models read the shim origin at construction time.
@@ -146,7 +160,6 @@ export function apply(ctx: Context, config: Config): void {
           catalog,
           resolveAttachments: () => ctx.get('attachments'),
         })
-        invalidate = workbuddy.invalidate
 
         let releaseAdapter: (() => void) | undefined
         let releaseDirectory: (() => void) | undefined
@@ -186,31 +199,6 @@ export function apply(ctx: Context, config: Config): void {
         ctx.logger.error('dsh-workbuddy-connect: provider registration failed', error)
         return
       }
-
-      void (async () => {
-        try {
-          // The local cache tier needs no credential, so the provider tracks
-          // the desktop app's catalog even while signed out; the network tier
-          // is only reachable with a credential, and a cache miss with no
-          // credential keeps the static fallback list.
-          let models: readonly WorkBuddyUpstreamModel[]
-          try {
-            models = await client.fetchModels()
-          } catch (cacheError: unknown) {
-            const credential = await store.current()
-            if (credential === undefined) throw cacheError
-            models = await client.fetchModels(credential)
-          }
-          if (stopped) return
-          catalog.set([...models])
-          invalidate?.()
-        } catch (error: unknown) {
-          ctx.logger.warn(
-            'dsh-workbuddy-connect: model catalog unavailable (local cache and network both failed); serving the static fallback list',
-            error,
-          )
-        }
-      })()
     })
     .catch((error: unknown) => {
       ctx.logger.error('dsh-workbuddy-connect: loopback endpoint failed to start; provider not registered', error)

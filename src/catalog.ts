@@ -1,6 +1,7 @@
 /**
- * WorkBuddy model catalog: a static fallback list captured from the live
- * endpoint, replaced by the upstream's dynamic answer once it loads.
+ * WorkBuddy model catalog. The runtime catalog starts empty and is populated
+ * by the caller from the desktop app's local product-config cache; a static
+ * list is kept only for diagnostics and as a public export.
  *
  * @module dsh-workbuddy-connect/catalog
  */
@@ -11,16 +12,12 @@ import type { WorkBuddyUpstreamModel } from './upstream.ts'
 export type WorkBuddyModelInfo = WorkBuddyUpstreamModel
 
 /**
- * Static CLI models observed on the CN endpoint (re-verified against the live
- * catalog 2026-09-01, including the thinking-effort and billing metadata). The
- * upstream refresh replaces this list at startup; it exists so the provider
- * registers with a usable catalog even while the first fetch is in flight or
- * offline.
- *
- * The list tracks the `cli` agent's model roster exactly: the 15 models the
- * desktop CLI offers. Reasoning metadata is taken verbatim from the live
- * endpoint — each model's supported effort set and whether thinking can be
- * disabled — and the `free` flag follows the upstream `x0.00` credits marker.
+ * A static CLI-model list captured from the CN endpoint (re-verified against
+ * the live catalog 2026-09-01). It is kept for diagnostics and as a public
+ * export only: the runtime catalog no longer initializes from it. The model
+ * directory now comes exclusively from the desktop app's local product-config
+ * cache, so an unreadable cache yields an empty catalog — never this stale
+ * list.
  */
 export const FALLBACK_WORKBUDDY_MODELS: readonly WorkBuddyModelInfo[] = [
   // Old-form reasoning rows (`{effort, summary}`, no `supportedEfforts`): the
@@ -47,9 +44,13 @@ export const FALLBACK_WORKBUDDY_MODELS: readonly WorkBuddyModelInfo[] = [
 
 /** Mutable catalog shared by the shim's `/v1/models` and the adapter. */
 export class WorkBuddyCatalog {
-  private models: readonly WorkBuddyModelInfo[] = FALLBACK_WORKBUDDY_MODELS
+  private models: readonly WorkBuddyModelInfo[] = []
 
-  /** Current entries; the fallback list until the upstream answer lands. */
+  /**
+   * Current entries. The catalog starts empty and is populated once the local
+   * product-config cache loads; a cache miss keeps it empty rather than
+   * serving the static fallback list, so the picker never shows stale models.
+   */
   current(): readonly WorkBuddyModelInfo[] {
     return this.models
   }

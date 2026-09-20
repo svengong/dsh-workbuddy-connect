@@ -3,6 +3,17 @@
 /** Plugin-owned status endpoint consumed by its browser half. */
 export const WORKBUDDY_STATUS_PATH = '/plugins/dsh-workbuddy-connect/status'
 
+/**
+ * Plugin-owned model-refresh endpoint consumed by its browser half.
+ *
+ * A separate path from the status document because this one changes registry
+ * state: it re-reads the local product-config cache and republishes the
+ * provider's routes, which is what makes DSH re-read the model catalog. It is
+ * therefore POST-only and gated on a loopback Host as well as a loopback
+ * Origin, so a cross-origin page cannot drive it.
+ */
+export const WORKBUDDY_REFRESH_PATH = '/plugins/dsh-workbuddy-connect/refresh-models'
+
 /** One billing package and its remaining credit. */
 export interface WorkBuddyWebCreditAccount {
   packageName: string
@@ -31,6 +42,23 @@ export interface WorkBuddyWebModelBadge {
    */
   credits?: string
 }
+
+/**
+ * The JSON answer of one manual model refresh.
+ *
+ * `models: 0` is a success, not a failure: an empty cache is a real answer
+ * ("the desktop app has not written one"), and collapsing it into an error
+ * would hide the one case the button exists to diagnose.
+ */
+export type WorkBuddyWebRefreshResult =
+  | {
+    status: 'ok'
+    /** Models the picker serves after the swap. */
+    models: number
+    /** Epoch milliseconds of the read, so the button can show how fresh it is. */
+    readAt: number
+  }
+  | { status: 'error'; message: string }
 
 /** The JSON document the plugin card renders. */
 export type WorkBuddyWebStatus =

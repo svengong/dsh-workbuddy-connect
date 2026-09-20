@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest'
  * `apply()`'s guarded body or its `console.error` message, update the mirror
  * here too; a mismatch between the two is invisible to this test.
  */
-describe('client card fallback', () => {
+describe('client registration fallback', () => {
   it('swallows a slot registration failure instead of throwing', () => {
     const errors: unknown[] = []
     const spy = vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => { errors.push(args) })
@@ -29,7 +29,7 @@ describe('client card fallback', () => {
       effect: () => {},
       locale: { register: () => () => {}, bind: () => () => '' },
       slots: {
-        inject: () => { throw new Error('keyed slot "settings.plugin.item" requires options.key') },
+        inject: () => { throw new Error('list slot "settings.models.footer" rejected the registration') },
       },
     }
 
@@ -39,7 +39,7 @@ describe('client card fallback', () => {
         const namespace = 'settings.workbuddy'
         ctx.effect(() => ctx.locale.register(namespace, { zh: {}, en: {} }), 'dsh-workbuddy-connect: settings copy')
         const t = ctx.locale.bind(namespace)
-        ctx.slots.inject('settings.plugin.item', () => {
+        ctx.slots.inject('settings.models.footer', () => {
           throw new Error('not reached')
         })
         void t
@@ -54,7 +54,7 @@ describe('client card fallback', () => {
     // The error is visible in the console for developers.
     expect(errors).toHaveLength(1)
     expect(String(errors[0])).toContain('client card failed to load')
-    expect(String(errors[0])).toContain('requires options.key')
+    expect(String(errors[0])).toContain('rejected the registration')
 
     spy.mockRestore()
   })

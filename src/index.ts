@@ -6,6 +6,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import type { AdapterRegistrationHandle } from '@deepseek-ai/dsh-llm'
 import z from '@deepseek-ai/schemastery'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-attachment'
@@ -14,7 +15,7 @@ import { WorkBuddyCatalog } from './catalog.ts'
 import { createWorkBuddyAdapter, WORKBUDDY_PROVIDER } from './adapter.ts'
 import { createWorkBuddyShim } from './shim.ts'
 import { WorkBuddyUpstreamClient } from './upstream.ts'
-import { registerWorkBuddyStatusRoute } from './web-status.ts'
+import { registerWorkBuddyRefreshRoute, registerWorkBuddyStatusRoute } from './web-status.ts'
 import { clearHostHeartbeat, writeHostHeartbeat } from './host-heartbeat.ts'
 
 export { WORKBUDDY_PROVIDER, WORKBUDDY_STREAM_IDLE_TIMEOUT_MS, createWorkBuddyAdapter, type WorkBuddyAdapter } from './adapter.ts'
@@ -123,9 +124,41 @@ export function apply(ctx: Context, config: Config): void {
   const catalog = new WorkBuddyCatalog()
   const shim = createWorkBuddyShim({ store, client, catalog, logger: ctx.logger })
 
-  // Same-origin status route backing the Plugin-configuration card; the
-  // webServer service is optional (a headless profile serves no browser).
-  ctx.inject(['webServer'], webCtx => registerWorkBuddyStatusRoute(webCtx, { store, client, models: () => catalog.current() }))
+  /**
+   * The live adapter registration, kept so a manual refresh can announce the
+   * routes again. `AdapterRegistrationHandle.replace()` is the LLM registry's
+   * own `llm/adapters-updated` publication point, and that event is what makes
+   * the browser's per-Host-generation model catalog re-read itself — the
+   * alternative would be a page reload or a DSH restart.
+   */
+  let adapterHandle: AdapterRegistrationHandle | undefined
+
+  /**
+   * Read the desktop app's product-config cache again and publish the result.
+   *
+   * The catalog is swapped only after a successful read, so a failed refresh
+   * leaves the previously served list intact instead of emptying the picker.
+   * `replace()` then re-announces the same adapter instance (its `listModels`
+   * reads the catalog live), which is enough for every open client to re-read.
+   * @returns how many models the picker now serves.
+   */
+  async function refreshCatalog(): Promise<number> {
+    const models = await client.fetchModels()
+    catalog.set([...models])
+    const handle = adapterHandle
+    if (handle === undefined) {
+      throw new Error('the WorkBuddy provider is not registered yet; the loopback endpoint is still starting')
+    }
+    handle.replace([WORKBUDDY_PROVIDER])
+    return models.length
+  }
+
+  // Same-origin routes backing the browser surfaces; the webServer service is
+  // optional (a headless profile serves no browser).
+  ctx.inject(['webServer'], (webCtx) => {
+    registerWorkBuddyStatusRoute(webCtx, { store, client, models: () => catalog.current() })
+    registerWorkBuddyRefreshRoute(webCtx, { refresh: refreshCatalog })
+  })
 
   // The settings section is what makes the provider visible on the Models
   // settings page (settings.describe joins the provider directory), and it
@@ -183,10 +216,11 @@ export function apply(ctx: Context, config: Config): void {
           resolveAttachments: () => ctx.get('attachments'),
         })
 
-        let releaseAdapter: (() => void) | undefined
+        let releaseAdapter: AdapterRegistrationHandle | undefined
         let releaseDirectory: (() => void) | undefined
         try {
           releaseAdapter = ctx.llm.registerAdapter([WORKBUDDY_PROVIDER], workbuddy.adapter)
+          adapterHandle = releaseAdapter
           releaseDirectory = ctx.llm.registerConfigurableProviders([{
             provider: WORKBUDDY_PROVIDER,
             displayName: 'WorkBuddy',
@@ -196,19 +230,24 @@ export function apply(ctx: Context, config: Config): void {
           }])
         } finally {
           if (releaseAdapter === undefined || releaseDirectory === undefined) {
-            // Registration threw; release whichever half landed.
+            // Registration threw; release whichever half landed, and leave the
+            // refresh route reporting "not registered" rather than calling into
+            // a released handle.
+            adapterHandle = undefined
             releaseAdapter?.()
             releaseDirectory?.()
           }
         }
         try {
           ctx.effect(() => () => {
+            adapterHandle = undefined
             releaseAdapter?.()
             releaseDirectory?.()
           })
         } catch {
           // The plugin was disposed during registration; release immediately —
           // the plugin-level disposer already closed the shim.
+          adapterHandle = undefined
           releaseAdapter?.()
           releaseDirectory?.()
         }

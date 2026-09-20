@@ -13,11 +13,11 @@ import type { WorkBuddyCredentialStore } from './auth.ts'
 import type { WorkBuddyUpstreamClient } from './upstream.ts'
 import { normalizeCredits } from './upstream.ts'
 import type { WorkBuddyModelInfo } from './catalog.ts'
-import { WORKBUDDY_STATUS_PATH } from './status-paths.ts'
-import type { WorkBuddyWebModelBadge, WorkBuddyWebStatus } from './status-paths.ts'
+import { WORKBUDDY_REFRESH_PATH, WORKBUDDY_STATUS_PATH } from './status-paths.ts'
+import type { WorkBuddyWebModelBadge, WorkBuddyWebRefreshResult, WorkBuddyWebStatus } from './status-paths.ts'
 
-export { WORKBUDDY_STATUS_PATH } from './status-paths.ts'
-export type { WorkBuddyWebStatus } from './status-paths.ts'
+export { WORKBUDDY_REFRESH_PATH, WORKBUDDY_STATUS_PATH } from './status-paths.ts'
+export type { WorkBuddyWebRefreshResult, WorkBuddyWebStatus } from './status-paths.ts'
 
 /** Constructor dependencies. */
 export interface WorkBuddyStatusRouteOptions {
@@ -47,6 +47,26 @@ function loopbackOrigin(req: IncomingMessage): boolean {
   if (origin === undefined) return true
   try {
     const { hostname } = new URL(origin)
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Loopback Host required, and a missing Host counts as untrusted.
+ *
+ * The status route tolerates an absent Origin because it only reads. The
+ * refresh route mutates registry state, so it adopts the stricter gate: a
+ * request that reached this server under a non-loopback name (a tunnel, a
+ * LAN address, a rebound DNS entry) must not be able to re-drive the model
+ * catalog even though the connection itself is local.
+ */
+function loopbackHost(req: IncomingMessage): boolean {
+  const host = req.headers.host
+  if (host === undefined || host === '') return false
+  try {
+    const { hostname } = new URL(`http://${host}`)
     return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1'
   } catch {
     return false
@@ -135,4 +155,61 @@ export function registerWorkBuddyStatusRoute(ctx: Context, deps: WorkBuddyStatus
       dispose()
     }
   }, 'dsh-workbuddy-connect: Web status route')
+}
+
+/** Constructor dependencies of the manual model-refresh route. */
+export interface WorkBuddyRefreshRouteOptions {
+  /**
+   * Re-read the local product-config cache, swap the served catalog, and
+   * republish the provider's routes so DSH re-reads its model catalog.
+   * @returns how many models the picker now serves.
+   */
+  refresh: () => Promise<number>
+}
+
+/**
+ * Mount the POST model-refresh route on an optional webServer context.
+ *
+ * The catalog the picker renders is cached per Host generation by the client
+ * (`ui-model-selection`), and the Host half answers `session.modelCatalog()`
+ * from the live LLM registry. So refreshing takes two steps that this route
+ * performs together on the Host: re-read the cache into the plugin's catalog,
+ * then announce the provider's routes again (`AdapterRegistrationHandle.replace`
+ * is the registry's own `llm/adapters-updated` publication point). The client
+ * hears that event and re-reads the catalog — no page reload, no DSH restart.
+ */
+export function registerWorkBuddyRefreshRoute(ctx: Context, deps: WorkBuddyRefreshRouteOptions): void {
+  ctx.effect(() => {
+    const dispose = ctx.webServer.register({
+      kind: 'exact',
+      path: WORKBUDDY_REFRESH_PATH,
+      handler: async (req: IncomingMessage, res: ServerResponse) => {
+        if (req.method !== 'POST') {
+          // 405 with an Allow header: this route exists only to be POSTed to,
+          // and a GET that quietly refreshed would be reachable from an <img>.
+          res.setHeader('Allow', 'POST')
+          json(res, 405, { error: 'method not allowed' })
+          return
+        }
+        if (!loopbackOrigin(req) || !loopbackHost(req)) {
+          json(res, 403, { error: 'origin-not-trusted' })
+          return
+        }
+        try {
+          const models = await deps.refresh()
+          const result: WorkBuddyWebRefreshResult = { status: 'ok', models, readAt: Date.now() }
+          json(res, 200, result)
+        } catch (error: unknown) {
+          // A failed read keeps the previously served list (the catalog is only
+          // swapped after a successful read), so the answer reports the reason
+          // without pretending the picker is now empty.
+          const result: WorkBuddyWebRefreshResult = { status: 'error', message: safeMessage(error) }
+          json(res, 200, result)
+        }
+      },
+    })
+    return () => {
+      dispose()
+    }
+  }, 'dsh-workbuddy-connect: Web model-refresh route')
 }

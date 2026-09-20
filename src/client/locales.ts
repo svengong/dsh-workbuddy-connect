@@ -1,61 +1,31 @@
-/** Plugin-card copy registered under the settings.workbuddy locale namespace. */
+/**
+ * Copy for the plugin's browser surface, registered under the
+ * `settings.workbuddy` locale namespace.
+ *
+ * Only the manual model refresh lives here. The account/credit card this
+ * namespace used to carry was retired with DSH 0.1.6-alpha.2, which removed the
+ * `settings.plugin.item` slot it registered into; its copy went with it, and
+ * `git log -- src/client/WorkBuddyPluginCard.tsx` has the rest.
+ */
 
 export const en = {
-  title: 'DSH WorkBuddy Connect',
-  intro: 'Use the models in the WorkBuddy desktop app directly in DSH — zero configuration, ready out of the box.',
-  expand: 'Expand',
-  collapse: 'Collapse',
-  loading: 'Loading account…',
-  signedOut: 'Not signed in',
-  signedOutHint: 'Sign in once in the WorkBuddy desktop app; this plugin follows that sign-in automatically.',
-  signedOutReason: 'Sign-in unusable: {reason}',
-  signedInAs: 'Signed in as {nickname}',
-  accessTokenExpires: 'Access token expires {time} (refresh is automatic)',
-  credentialUnlocked: 'Sign-in read from the desktop app\'s encrypted store (unlocked locally on this machine).',
-  creditsHeading: 'Remaining credit',
-  creditsTotal: 'Total: {total}',
-  percentRemaining: '{percent}% remaining',
-  exactRemaining: '{remain} / {size} remaining',
-  creditPackageUnknownSize: '{remain} remaining',
-  creditsError: 'Credit unavailable: {message}',
-  refresh: 'Refresh',
-  refreshing: 'Refreshing…',
-  requestFailed: 'Request failed',
-  accountHeading: 'Account',
-  modelsHeading: 'Model offers',
-  freeModel: 'Free',
-  badgeLimitedFree: 'Limited-time free',
-  badgeNightDiscount: 'Night discount',
-  rate: '{rate} credits per message',
+  refreshModels: 'Refresh model list',
+  refreshModelsBusy: 'Refreshing…',
+  refreshModelsHint: 'Re-reads the WorkBuddy desktop app\'s local model cache and republishes the provider, so the picker updates without restarting DSH.',
+  refreshModelsOk: 'Refreshed: {count} models',
+  refreshModelsOkEmpty: 'Refreshed, but the cache lists no models',
+  refreshModelsFailed: 'Refresh failed: {message}',
+  refreshModelsForbidden: 'Refresh refused: it must come from a loopback address (127.0.0.1 / localhost).',
 } as const
 
 export type WorkBuddySettingsKey = keyof typeof en
 
 export const zh: Record<WorkBuddySettingsKey, string> = {
-  title: 'DSH WorkBuddy Connect',
-  intro: '在 DSH 中直接使用 WorkBuddy 桌面 App 包含的模型，开箱即用，无需额外配置。',
-  expand: '展开',
-  collapse: '收起',
-  loading: '正在读取账号…',
-  signedOut: '未登录',
-  signedOutHint: '在 WorkBuddy 桌面 App 里登录一次即可，插件会自动跟随当前登录的账号。',
-  signedOutReason: '登录态不可用：{reason}',
-  signedInAs: '已登录：{nickname}',
-  accessTokenExpires: '访问令牌 {time} 过期（自动续期）',
-  credentialUnlocked: '登录态来自桌面端加密存储（已在本机解锁读取）。',
-  creditsHeading: '剩余积分',
-  creditsTotal: '合计：{total}',
-  percentRemaining: '剩余 {percent}%',
-  exactRemaining: '剩余 {remain} / {size}',
-  creditPackageUnknownSize: '剩余 {remain}',
-  creditsError: '积分查询失败：{message}',
-  refresh: '刷新',
-  refreshing: '正在刷新…',
-  requestFailed: '请求失败',
-  accountHeading: '账号',
-  modelsHeading: '模型优惠',
-  freeModel: '免费',
-  badgeLimitedFree: '限时免费',
-  badgeNightDiscount: '夜间折扣',
-  rate: '{rate} 积分/次',
+  refreshModels: '刷新模型列表',
+  refreshModelsBusy: '正在刷新…',
+  refreshModelsHint: '重新读取 WorkBuddy 桌面 App 的本地模型缓存并重新发布模型，选择器立即更新，无需重启 DSH。',
+  refreshModelsOk: '已刷新：{count} 个模型',
+  refreshModelsOkEmpty: '已刷新，但缓存里没有模型',
+  refreshModelsFailed: '刷新失败：{message}',
+  refreshModelsForbidden: '刷新被拒绝：该请求必须来自本机回环地址（127.0.0.1 / localhost）。',
 }

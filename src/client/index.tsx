@@ -1,4 +1,4 @@
-/** Browser half: WorkBuddy account status inside Plugin configuration. */
+/** Browser half: the manual model-refresh control on the Models settings page. */
 
 // `dsh-client-*` 0.1.2-alpha.5 retired the `dsh-client-runtime` package: the
 // browser plugin context is cordis' own `Context` now, and the services it
@@ -10,16 +10,42 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import { WorkBuddyPluginCard } from './WorkBuddyPluginCard.tsx'
-import type { WorkBuddyPluginCardInjected } from './WorkBuddyPluginCard.tsx'
+import { RefreshModelsButton } from './RefreshModelsButton.tsx'
+import type { WorkBuddyRefreshInjected } from './RefreshModelsButton.tsx'
 import { en, zh } from './locales.ts'
 import type { WorkBuddySettingsKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** WorkBuddy plugin card copy. */
+    /** Model-refresh copy for the plugin's Models-page control. */
     'settings.workbuddy': WorkBuddySettingsKey
   }
+}
+
+/**
+ * The Models settings page's footer slot: `kind: 'list'`, `scope: 'root'`,
+ * declared by DSH's own `ui-settings-models` ("without a registrant the area
+ * renders nothing").
+ */
+const MODELS_FOOTER_SLOT = 'settings.models.footer'
+
+/**
+ * The slice of the slot service this registration needs.
+ *
+ * Typed locally rather than through `SlotMap`: this package's pinned DSH types
+ * predate the footer slot, and declaring the key in the shared table would
+ * collide with the owner's own declaration — "subsequent property declarations
+ * must have the same type" — as soon as those dependencies move to the 0.1.6
+ * line. The wire contract is small and stable: a list slot takes `id` (the
+ * cell) plus `order`, and an `inject` factory supplies the component's extra
+ * props.
+ */
+interface LateDeclaredListSlot {
+  inject: (name: string, register: () => () => void) => () => void
+  register: (
+    options: { name: string; id: string; order?: number; inject: () => WorkBuddyRefreshInjected },
+    component: unknown,
+  ) => () => void
 }
 
 /** Stable browser-plugin name. */
@@ -28,7 +54,7 @@ export const name = 'dsh-workbuddy-connect-client'
 export const inject = ['slots', 'locale']
 
 /**
- * Register card copy and the WorkBuddy card under Plugin configuration.
+ * Register the model-refresh copy and the Models page's footer control.
  *
  * The entire body is wrapped so that a DSH slot-API breaking change (for
  * example the rc.6→rc.7 `id`→`key` / `order`→`priority` rename) degrades
@@ -49,13 +75,19 @@ export function apply(ctx: ClientContext): void {
   try {
     const namespace = 'settings.workbuddy'
     ctx.effect(() => ctx.locale.register(namespace, { zh, en }), 'dsh-workbuddy-connect: settings copy')
-    const t = ctx.locale.bind(namespace) as WorkBuddyPluginCardInjected['t']
-    ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
-      name: 'settings.plugin.item',
-      key: 'workbuddy-oo',
-      priority: 30,
-      inject: (): WorkBuddyPluginCardInjected => ({ t }),
-    }, WorkBuddyPluginCard))
+    const t = ctx.locale.bind(namespace) as WorkBuddyRefreshInjected['t']
+    // The Models page's footer: the refresh control sits where the user is
+    // already looking at the served models. It is the plugin's only browser
+    // surface — the account/credit card this plugin used to ship registered
+    // into `settings.plugin.item`, which DSH 0.1.6-alpha.2 removed, so a
+    // registration there would never render again.
+    const lateSlots = ctx.slots as unknown as LateDeclaredListSlot
+    lateSlots.inject(MODELS_FOOTER_SLOT, () => lateSlots.register({
+      name: MODELS_FOOTER_SLOT,
+      id: 'workbuddy-oo-refresh-models',
+      order: 30,
+      inject: (): WorkBuddyRefreshInjected => ({ t }),
+    }, RefreshModelsButton))
   } catch (error: unknown) {
     // Degrade silently on the page: the host provider still serves models.
     // Developers see the full cause in the browser console; users see no banner.

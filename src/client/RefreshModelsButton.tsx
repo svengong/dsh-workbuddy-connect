@@ -1,5 +1,5 @@
 /**
- * Model-page footer button: re-read the WorkBuddy model cache on demand.
+ * Model-refresh control: re-read the WorkBuddy model cache on demand.
  *
  * The picker's catalog is cached per Host generation by the client, and the
  * Host answers `session.modelCatalog()` from the live LLM registry, so a list
@@ -9,10 +9,9 @@
  * provider's routes — and DSH's own `llm/adapters-updated` handler takes care
  * of the rest. No reload, no DSH restart.
  *
- * It lives in the Models settings page's footer slot because that is where a
- * user looking at the model list already is, and because it is the plugin's
- * only browser surface: the account/credit card this plugin used to ship
- * registered into `settings.plugin.item`, which DSH 0.1.6-alpha.2 removed.
+ * It renders inside the WorkBuddy provider row on the Models page, through that
+ * page's per-provider extension seat, so the control sits with the provider it
+ * refreshes rather than in a detached area.
  *
  * @module dsh-workbuddy-connect/client/RefreshModelsButton
  */
@@ -46,22 +45,9 @@ const wrapStyle: CSSProperties = {
   padding: '4px 0',
 }
 
-const textStyle: CSSProperties = {
-  display: 'flex',
-  minWidth: 0,
-  flexDirection: 'column',
-  gap: 3,
-  flex: '1 1 260px',
-}
-
-const titleStyle: CSSProperties = {
-  fontSize: 14,
-  lineHeight: '20px',
-  fontWeight: 600,
-  color: 'var(--dsw-alias-label-primary)',
-}
-
 const hintStyle: CSSProperties = {
+  flex: '1 1 220px',
+  minWidth: 0,
   fontSize: 12,
   lineHeight: '18px',
   color: 'var(--dsw-alias-label-tertiary)',
@@ -167,10 +153,9 @@ export function RefreshModelsButton({ t }: RefreshModelsButtonProps): React.Reac
   const detail = outcomeText(outcome, t)
   return (
     <div style={wrapStyle}>
-      <div style={textStyle}>
-        <span style={titleStyle}>{t('refreshModels')}</span>
-        <span style={hintStyle}>{t('refreshModelsHint')}</span>
-      </div>
+      {/* No heading of its own: the row already sits under the provider's name
+          inside the WorkBuddy card, and the button carries the action's name. */}
+      <span style={hintStyle}>{t('refreshModelsHint')}</span>
       <button
         type="button"
         style={busy ? busyButtonStyle : buttonStyle}

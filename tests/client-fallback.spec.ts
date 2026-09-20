@@ -29,7 +29,7 @@ describe('client registration fallback', () => {
       effect: () => {},
       locale: { register: () => () => {}, bind: () => () => '' },
       slots: {
-        inject: () => { throw new Error('list slot "settings.models.footer" rejected the registration') },
+        inject: () => { throw new Error('keyed slot "settings.models.provider-card" rejected the registration') },
       },
     }
 
@@ -39,7 +39,7 @@ describe('client registration fallback', () => {
         const namespace = 'settings.workbuddy'
         ctx.effect(() => ctx.locale.register(namespace, { zh: {}, en: {} }), 'dsh-workbuddy-connect: settings copy')
         const t = ctx.locale.bind(namespace)
-        ctx.slots.inject('settings.models.footer', () => {
+        ctx.slots.inject('settings.models.provider-card', () => {
           throw new Error('not reached')
         })
         void t

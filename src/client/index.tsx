@@ -23,27 +23,35 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /**
- * The Models settings page's footer slot: `kind: 'list'`, `scope: 'root'`,
- * declared by DSH's own `ui-settings-models` ("without a registrant the area
- * renders nothing").
+ * The seat for a provider's own extra card, keyed by that provider's settings
+ * namespace — `workbuddy-oo` here.
+ *
+ * The Models page dispatches it on the provider's row card itself, before and
+ * independently of that row's editor (`ui-settings-models` renders the
+ * `renderSlot` call ahead of its `open ? editor` branch), so an occupant lands
+ * INSIDE the WorkBuddy card instead of in a detached area at the page's end.
+ * The same key is dispatched on the first-run setup card and the add-provider
+ * draft card; all three render nothing without a registrant.
  */
-const MODELS_FOOTER_SLOT = 'settings.models.footer'
+const PROVIDER_CARD_SLOT = 'settings.models.provider-card'
+
+/** This provider's key in that keyed slot: its settings namespace. */
+const PROVIDER_CARD_KEY = 'workbuddy-oo'
 
 /**
  * The slice of the slot service this registration needs.
  *
  * Typed locally rather than through `SlotMap`: this package's pinned DSH types
- * predate the footer slot, and declaring the key in the shared table would
- * collide with the owner's own declaration — "subsequent property declarations
- * must have the same type" — as soon as those dependencies move to the 0.1.6
- * line. The wire contract is small and stable: a list slot takes `id` (the
- * cell) plus `order`, and an `inject` factory supplies the component's extra
- * props.
+ * predate the seat, and declaring the key in the shared table would collide
+ * with the owner's own declaration — "subsequent property declarations must
+ * have the same type" — as soon as those dependencies move to the 0.1.6 line.
+ * The wire contract is small and stable: a keyed slot takes `key` (the cell),
+ * and an `inject` factory supplies the component's extra props.
  */
-interface LateDeclaredListSlot {
+interface LateDeclaredKeyedSlot {
   inject: (name: string, register: () => () => void) => () => void
   register: (
-    options: { name: string; id: string; order?: number; inject: () => WorkBuddyRefreshInjected },
+    options: { name: string; key: string; priority?: number; inject: () => WorkBuddyRefreshInjected },
     component: unknown,
   ) => () => void
 }
@@ -54,7 +62,7 @@ export const name = 'dsh-workbuddy-connect-client'
 export const inject = ['slots', 'locale']
 
 /**
- * Register the model-refresh copy and the Models page's footer control.
+ * Register the model-refresh copy and the control inside the WorkBuddy card.
  *
  * The entire body is wrapped so that a DSH slot-API breaking change (for
  * example the rc.6→rc.7 `id`→`key` / `order`→`priority` rename) degrades
@@ -76,16 +84,15 @@ export function apply(ctx: ClientContext): void {
     const namespace = 'settings.workbuddy'
     ctx.effect(() => ctx.locale.register(namespace, { zh, en }), 'dsh-workbuddy-connect: settings copy')
     const t = ctx.locale.bind(namespace) as WorkBuddyRefreshInjected['t']
-    // The Models page's footer: the refresh control sits where the user is
-    // already looking at the served models. It is the plugin's only browser
-    // surface — the account/credit card this plugin used to ship registered
-    // into `settings.plugin.item`, which DSH 0.1.6-alpha.2 removed, so a
-    // registration there would never render again.
-    const lateSlots = ctx.slots as unknown as LateDeclaredListSlot
-    lateSlots.inject(MODELS_FOOTER_SLOT, () => lateSlots.register({
-      name: MODELS_FOOTER_SLOT,
-      id: 'workbuddy-oo-refresh-models',
-      order: 30,
+    // Inside the WorkBuddy provider row on the Models page. This is the
+    // plugin's only browser surface: the account/credit card it used to ship
+    // registered into `settings.plugin.item`, which DSH 0.1.6-alpha.2 removed,
+    // so a registration there would never render again.
+    const lateSlots = ctx.slots as unknown as LateDeclaredKeyedSlot
+    lateSlots.inject(PROVIDER_CARD_SLOT, () => lateSlots.register({
+      name: PROVIDER_CARD_SLOT,
+      key: PROVIDER_CARD_KEY,
+      priority: 30,
       inject: (): WorkBuddyRefreshInjected => ({ t }),
     }, RefreshModelsButton))
   } catch (error: unknown) {

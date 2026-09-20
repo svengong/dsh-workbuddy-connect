@@ -27,12 +27,18 @@ export {
 export {
   defaultDesktopAuthCandidates,
   defaultDesktopAuthPath,
+  inspectWorkBuddyAuthDocument,
+  isEncryptedFieldWrapper,
   parseWorkBuddyAuth,
   WORKBUDDY_AUTH_FILE_ENV,
   WORKBUDDY_AUTH_FILENAME,
+  WORKBUDDY_CREDENTIAL_UNREADABLE_CODE,
+  WORKBUDDY_ENCRYPTED_AT_REST_REASON,
   WorkBuddyCredentialStore,
+  WorkBuddyCredentialUnreadableError,
   workbuddyOwnAuthPath,
   type WorkBuddyAuthStatus,
+  type WorkBuddyAuthTokenShape,
   type WorkBuddyCredential,
 } from './auth.ts'
 export {
@@ -50,6 +56,21 @@ export {
   type WorkBuddyRefreshOutcome,
   type WorkBuddyUpstreamModel,
 } from './upstream.ts'
+export {
+  createAtRestUnlocker,
+  defaultAppBinaryCandidates,
+  deriveKeyId,
+  deriveProtectorKey,
+  envelopeAad,
+  isSealedField,
+  openSealedFields,
+  resetProtectorKeyCache,
+  resolveProtectorKey,
+  WORKBUDDY_APP_BINARY_ENV,
+  WorkBuddyAtRestError,
+  type WorkBuddyAuthUnlocker,
+  type WorkBuddySealedField,
+} from './at-rest.ts'
 export {
   WORKBUDDY_HOST_HEARTBEAT_FILENAME,
   clearHostHeartbeat,
@@ -97,6 +118,7 @@ export function apply(ctx: Context, config: Config): void {
   const store = new WorkBuddyCredentialStore({
     ...config.authFile === undefined ? {} : { desktopPath: config.authFile },
     refresh: credential => client.refreshToken(credential),
+    logger: ctx.logger,
   })
   const catalog = new WorkBuddyCatalog()
   const shim = createWorkBuddyShim({ store, client, catalog, logger: ctx.logger })

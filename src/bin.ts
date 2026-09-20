@@ -83,8 +83,15 @@ async function doctor(jsonOutput: boolean): Promise<number> {
     },
     modelCatalog,
     signIn: status.state,
+    ...status.source === undefined ? {} : { signInSource: status.source },
+    ...status.reason === undefined ? {} : { signInReason: status.reason },
     hints: [
-      ...status.state === 'signed-in' ? [] : ['Sign in once in the WorkBuddy desktop app, then run status again.'],
+      // A diagnosable reason replaces the generic hint: telling the user to
+      // "sign in again" when the app already is signed in (it just sealed the
+      // credential) sends them to fix the wrong thing.
+      ...status.reason !== undefined
+        ? [`Stored sign-in is unusable: ${status.reason}`]
+        : status.state === 'signed-in' ? [] : ['Sign in once in the WorkBuddy desktop app, then run status again.'],
       ...desktopPresent ? [] : [`No WorkBuddy desktop auth file at the expected path; set WORKBUDDY_AUTH_FILE if it lives elsewhere.`],
       ...hostAlive ? [] : ['Host bundle not running in this DSH profile (or the process exited). The browser card and provider are unavailable until DSH starts the plugin.'],
       ...modelCatalog.error === undefined ? [] : [
@@ -100,7 +107,10 @@ async function doctor(jsonOutput: boolean): Promise<number> {
       `WorkBuddy Connect ${WORKBUDDY_CONNECT_VERSION} on ${process.version}`,
       `Desktop auth file: ${report.desktopAuthFile.present ? 'present' : 'missing'} (${report.desktopAuthFile.path})`,
       `Host bundle: ${hostAlive ? `running (pid ${heartbeat!.pid})` : heartbeat !== undefined ? 'stale heartbeat (process exited)' : 'not started'}`,
-      `Sign-in state: ${report.signIn}`,
+      `Sign-in state: ${report.signIn}${status.reason === undefined ? '' : ` (${status.reason})`}`,
+      ...status.source === 'desktop-unlocked'
+        ? ['Sign-in source: desktop encrypted store (unlocked locally on this machine)']
+        : [],
       modelCatalog.error === undefined
         ? `Model catalog: ${modelCatalog.models} models from ${modelCatalog.path}`
         : `Model catalog: unavailable (${modelCatalog.error})`,
@@ -120,9 +130,20 @@ async function status(jsonOutput: boolean): Promise<number> {
   const hostState = hostAlive ? 'running' : heartbeat !== undefined ? 'stale' : 'not-started'
   if (authStatus.state !== 'signed-in') {
     if (jsonOutput) {
-      printJson({ schemaVersion: JSON_SCHEMA_VERSION, package: 'dsh-workbuddy-connect', version: WORKBUDDY_CONNECT_VERSION, status: 'signed-out', hostBundle: hostState })
+      printJson({
+        schemaVersion: JSON_SCHEMA_VERSION,
+        package: 'dsh-workbuddy-connect',
+        version: WORKBUDDY_CONNECT_VERSION,
+        status: 'signed-out',
+        ...authStatus.reason === undefined ? {} : { signInReason: authStatus.reason },
+        hostBundle: hostState,
+      })
     } else {
-      process.stdout.write(`WorkBuddy Connect: signed out\nHost bundle: ${hostState}\n`)
+      process.stdout.write(
+        `WorkBuddy Connect: signed out\n`
+        + (authStatus.reason === undefined ? '' : `Reason: ${authStatus.reason}\n`)
+        + `Host bundle: ${hostState}\n`,
+      )
     }
     return 1
   }
@@ -152,6 +173,9 @@ async function status(jsonOutput: boolean): Promise<number> {
   }
   process.stdout.write([
     `WorkBuddy Connect: signed in${authStatus.nickname === undefined ? '' : ` as ${authStatus.nickname}`}`,
+    ...authStatus.source === 'desktop-unlocked'
+      ? ['Sign-in source: read from the desktop app\'s encrypted store (unlocked locally on this machine)']
+      : [],
     ...expiresAt === undefined ? [] : [`Access token expires ${expiresAt} (refresh is automatic)`],
     credits?.error === undefined
       ? `Remaining credit: ${credits?.total ?? 'unknown'}`

@@ -18,7 +18,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
-import type { WorkBuddyCredentialStore } from './auth.ts'
+import { WorkBuddyCredentialUnreadableError, type WorkBuddyCredentialStore } from './auth.ts'
 import type { WorkBuddyCatalog } from './catalog.ts'
 import { prepareChatBody, WorkBuddyUpstreamClient, type UpstreamErrorKind } from './upstream.ts'
 
@@ -244,6 +244,15 @@ export function createWorkBuddyShim(options: WorkBuddyShimOptions): WorkBuddyShi
     try {
       credential = await store.resolve()
     } catch (error: unknown) {
+      // A sign-in the plugin cannot read is a local format gap, not an
+      // authentication failure. Reporting it as 401 makes the Harness render
+      // "API 密钥无效" / "API key is invalid" — the wrong diagnosis, and one
+      // that hides the real fix — so it travels as its own code and the
+      // plugin's own message stays on screen.
+      if (error instanceof WorkBuddyCredentialUnreadableError) {
+        writeOpenAIError(res, 400, error.code, error.message)
+        return
+      }
       writeOpenAIError(res, 401, 'not_signed_in', String(error))
       return
     }

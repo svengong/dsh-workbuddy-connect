@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   defaultDesktopAuthCandidates,
+  inspectWorkBuddyAuthDocument,
   parseWorkBuddyAuth,
   WorkBuddyCredentialStore,
+  WorkBuddyCredentialUnreadableError,
   WORKBUDDY_AUTH_FILE_ENV,
   type WorkBuddyCredential,
 } from '../src/auth.ts'
@@ -71,6 +73,37 @@ describe('parseWorkBuddyAuth', () => {
     expect(parseWorkBuddyAuth('{}')).toBeUndefined()
     expect(parseWorkBuddyAuth('not json')).toBeUndefined()
     expect(parseWorkBuddyAuth(JSON.stringify({ auth: { refreshToken: 'rt' } }))).toBeUndefined()
+  })
+})
+
+/** The `$wbEncrypted` field wrapper WorkBuddy 5.6.0 writes for sealed fields. */
+function sealedField(): unknown {
+  return { $wbEncrypted: 1, envelope: 'eyJzdWl0ZSI6MX0=' }
+}
+
+describe('inspectWorkBuddyAuthDocument', () => {
+  it('recognizes a usable plaintext token', () => {
+    expect(inspectWorkBuddyAuthDocument(nestedDoc(Date.now() + 3600_000))).toBe('plaintext')
+  })
+
+  it('reports the desktop app\'s sealed token as encrypted-at-rest', () => {
+    const document = JSON.stringify({
+      auth: { accessToken: sealedField(), refreshToken: sealedField(), expiresAt: Date.now() + 3600_000 },
+      account: { uid: 'uid-1' },
+    })
+    expect(inspectWorkBuddyAuthDocument(document)).toBe('encrypted-at-rest')
+    expect(parseWorkBuddyAuth(document)).toBeUndefined()
+  })
+
+  it('detects a sealed refresh token even with no access token present', () => {
+    expect(inspectWorkBuddyAuthDocument(JSON.stringify({ auth: { refreshToken: sealedField() } })))
+      .toBe('encrypted-at-rest')
+  })
+
+  it('separates an absent token from a sealed one', () => {
+    expect(inspectWorkBuddyAuthDocument('{}')).toBe('no-token')
+    expect(inspectWorkBuddyAuthDocument('not json')).toBe('unparsable')
+    expect(inspectWorkBuddyAuthDocument('[]')).toBe('unparsable')
   })
 })
 
@@ -147,6 +180,135 @@ describe('WorkBuddyCredentialStore', () => {
       refresh: async credential => ({ accessToken: credential.accessToken }),
     })
     await expect(store.resolve()).rejects.toThrow(/no signed-in WorkBuddy account/)
+  })
+
+  it('reports a sealed sign-in as unusable instead of merely signed out', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wb-store-'))
+    CLEANUP.push(() => rm(dir, { recursive: true, force: true }))
+    const desktop = join(dir, 'workbuddy-desktop.info')
+    await writeFile(desktop, JSON.stringify({
+      auth: { accessToken: sealedField(), refreshToken: sealedField(), expiresAt: Date.now() + 3600_000 },
+      account: { uid: 'uid-1' },
+    }))
+    let refreshes = 0
+    const store = new WorkBuddyCredentialStore({
+      desktopPath: desktop,
+      ownPath: join(dir, 'own.json'),
+      // Injected so the test never spawns the WorkBuddy binary.
+      unlock: async () => { throw new Error('unlock unavailable on this platform') },
+      refresh: async () => {
+        refreshes += 1
+        return { accessToken: 'unused' }
+      },
+    })
+    await expect(store.status()).resolves.toMatchObject({
+      state: 'signed-out',
+      reason: expect.stringContaining('sealed its stored sign-in'),
+    })
+    // The unlock failure is the actionable half of the reason.
+    await expect(store.status()).resolves.toMatchObject({
+      reason: expect.stringContaining('unlock unavailable on this platform'),
+    })
+    const failure: unknown = await store.resolve().then(() => undefined, (error: unknown) => error)
+    expect(failure).toBeInstanceOf(WorkBuddyCredentialUnreadableError)
+    expect((failure as WorkBuddyCredentialUnreadableError).code).toBe('credential_unreadable')
+    // The failure is a local format gap: no refresh attempt may be made.
+    expect(refreshes).toBe(0)
+  })
+
+  it('uses the local unlock when the app sealed the sign-in', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wb-store-'))
+    CLEANUP.push(() => rm(dir, { recursive: true, force: true }))
+    const desktop = join(dir, 'workbuddy-desktop.info')
+    const expiresAt = Date.now() + 3600_000
+    await writeFile(desktop, JSON.stringify({
+      auth: { accessToken: sealedField(), refreshToken: sealedField(), expiresAt },
+      account: { uid: 'uid-1' },
+    }))
+    let unlocks = 0
+    const store = new WorkBuddyCredentialStore({
+      desktopPath: desktop,
+      ownPath: join(dir, 'own.json'),
+      unlock: async text => {
+        unlocks += 1
+        // The unlocker returns the same document with its fields opened.
+        expect(text).toContain('$wbEncrypted')
+        return JSON.stringify({
+          auth: { accessToken: 'at-opened', refreshToken: 'rt', expiresAt, domain: 'www.codebuddy.cn' },
+          account: { uid: 'uid-1', enterpriseId: 'ent-1', nickname: '昵称' },
+        })
+      },
+      refresh: async () => { throw new Error('a fresh credential must not refresh') },
+    })
+    await expect(store.resolve()).resolves.toMatchObject({
+      accessToken: 'at-opened',
+      uid: 'uid-1',
+      enterpriseId: 'ent-1',
+      nickname: '昵称',
+      source: 'desktop-unlocked',
+    })
+    await expect(store.status()).resolves.toMatchObject({ state: 'signed-in', source: 'desktop-unlocked' })
+    // Every read re-opens the fields (microseconds); only the expensive part —
+    // deriving the protector key from the app binary — is memoized inside the
+    // unlocker, so this counter tracks reads, not probes.
+    expect(unlocks).toBeGreaterThanOrEqual(1)
+  })
+
+  it('reports a sealed sign-in whose unlock produced no token', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'wb-store-'))
+    CLEANUP.push(() => rm(dir, { recursive: true, force: true }))
+    const desktop = join(dir, 'workbuddy-desktop.info')
+    await writeFile(desktop, JSON.stringify({
+      auth: { accessToken: sealedField(), expiresAt: Date.now() + 3600_000 },
+      account: { uid: 'uid-1' },
+    }))
+    const store = new WorkBuddyCredentialStore({
+      desktopPath: desktop,
+      ownPath: join(dir, 'own.json'),
+      unlock: async () => JSON.stringify({ auth: { refreshToken: 'rt' } }),
+      refresh: async () => { throw new Error('unused') },
+    })
+    await expect(store.status()).resolves.toMatchObject({
+      state: 'signed-out',
+      reason: expect.stringContaining('carried no access token'),
+    })
+  })
+
+  it('reads the plugin-owned copy without losing expiry or identity', async () => {    const dir = await mkdtemp(join(tmpdir(), 'wb-store-'))
+    CLEANUP.push(() => rm(dir, { recursive: true, force: true }))
+    const expiresAtMs = Date.now() + 3_600_000
+    await writeFile(join(dir, 'own.json'), JSON.stringify({
+      version: 1,
+      credential: {
+        accessToken: 'at-own',
+        refreshToken: 'rt-own',
+        expiresAtMs,
+        domain: 'www.codebuddy.cn',
+        uid: 'uid-own',
+        enterpriseId: 'ent-own',
+        nickname: 'own',
+        source: 'dsh',
+      },
+    }))
+    let refreshes = 0
+    const store = new WorkBuddyCredentialStore({
+      desktopPath: join(dir, 'missing.info'),
+      ownPath: join(dir, 'own.json'),
+      refresh: async () => {
+        refreshes += 1
+        return { accessToken: 'unused' }
+      },
+    })
+    await expect(store.resolve()).resolves.toMatchObject({
+      accessToken: 'at-own',
+      expiresAtMs,
+      uid: 'uid-own',
+      enterpriseId: 'ent-own',
+      nickname: 'own',
+      source: 'dsh',
+    })
+    // Zeroing the expiry here is what used to force a refresh on every request.
+    expect(refreshes).toBe(0)
   })
 
   it('applies a desktop-path repoint on the next read', async () => {

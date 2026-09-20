@@ -13,7 +13,11 @@ import { homedir, release } from 'node:os'
 import { basename, join } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { createAtRestUnlocker, isSealedField, type WorkBuddyAuthUnlocker } from './at-rest.ts'
 import type { WorkBuddyRefreshOutcome } from './upstream.ts'
+
+/** Whether a value is the desktop app's `$wbEncrypted` field wrapper. */
+export { isSealedField as isEncryptedFieldWrapper } from './at-rest.ts'
 
 /** Normalized WorkBuddy credential, timestamps in epoch milliseconds. */
 export interface WorkBuddyCredential {
@@ -26,7 +30,7 @@ export interface WorkBuddyCredential {
   enterpriseId?: string
   nickname?: string
   /** Which storage the credential was read from; refreshes are always `dsh`. */
-  source: 'desktop' | 'dsh'
+  source: 'desktop' | 'desktop-unlocked' | 'dsh'
 }
 
 /** Read-only sign-in summary for status and doctor output. */
@@ -36,7 +40,13 @@ export interface WorkBuddyAuthStatus {
   refreshExpiresAtMs?: number
   nickname?: string
   domain?: string
-  source?: 'desktop' | 'dsh'
+  source?: 'desktop' | 'desktop-unlocked' | 'dsh'
+  /**
+   * Why no credential is usable, when the reason is diagnosable rather than
+   * "nobody is signed in" — the desktop app sealing the credential at rest
+   * being the case that matters. Present only on `signed-out`.
+   */
+  reason?: string
 }
 
 /** Constructor options; only {@link refresh} is required. */
@@ -47,6 +57,17 @@ export interface WorkBuddyStoreOptions {
   ownPath?: string
   /** Performs the upstream token refresh. */
   refresh: (credential: WorkBuddyCredential) => Promise<WorkBuddyRefreshOutcome>
+  /**
+   * Opens a sign-in the desktop app sealed at rest. Defaults to the real
+   * unlocker, which derives the protector key from the WorkBuddy desktop
+   * binary; injected in tests so no process is ever spawned.
+   */
+  unlock?: WorkBuddyAuthUnlocker
+  /**
+   * Optional sink for the one-line notice emitted the first time a sealed
+   * sign-in is opened, so the host log records that it happened.
+   */
+  logger?: { info(message: string): void }
   /** Refresh this long before actual expiry; default five minutes. */
   refreshMarginMs?: number
 }
@@ -188,6 +209,67 @@ export function parseWorkBuddyAuth(text: string): WorkBuddyCredential | undefine
   return credential
 }
 
+/** How a desktop auth document stores its tokens. */
+export type WorkBuddyAuthTokenShape =
+  /** A plain string the plugin can use. */
+  | 'plaintext'
+  /** Sealed in a `$wbEncrypted` envelope the plugin cannot open. */
+  | 'encrypted-at-rest'
+  /** Parsed fine, but carries no access token at all. */
+  | 'no-token'
+  /** Not a JSON object this parser recognizes. */
+  | 'unparsable'
+
+/**
+ * Why {@link parseWorkBuddyAuth} would reject a document.
+ *
+ * The distinction is the whole point: "nobody is signed in" and "signed in,
+ * but the app sealed the token" are different problems with different fixes,
+ * and collapsing both into signed-out makes the second look like a bad key.
+ */
+export function inspectWorkBuddyAuthDocument(text: string): WorkBuddyAuthTokenShape {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return 'unparsable'
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return 'unparsable'
+  const document = parsed as Record<string, unknown>
+  const auth = typeof document['auth'] === 'object' && document['auth'] !== null
+    ? document['auth'] as Record<string, unknown>
+    : document
+  if (typeof auth['accessToken'] === 'string' && auth['accessToken'] !== '') return 'plaintext'
+  if (isSealedField(auth['accessToken']) || isSealedField(auth['refreshToken'])) {
+    return 'encrypted-at-rest'
+  }
+  return 'no-token'
+}
+
+/** `code` carried by a credential the plugin cannot read; the shim routes on it. */
+export const WORKBUDDY_CREDENTIAL_UNREADABLE_CODE = 'credential_unreadable'
+
+/** Human-facing reason an otherwise valid sign-in is unusable here. */
+export const WORKBUDDY_ENCRYPTED_AT_REST_REASON =
+  'the WorkBuddy desktop app sealed its stored sign-in with at-rest encryption'
+  + ' (a `$wbEncrypted` envelope, app 5.6.0+)'
+
+/**
+ * Thrown when the desktop app holds a valid sign-in the plugin cannot read.
+ *
+ * Deliberately not an ordinary "not signed in" failure: the credential file is
+ * intact and the user's session is fine. A caller that reports this as an
+ * authentication error makes the Harness render "API 密钥无效" / "API key is
+ * invalid", which is the wrong diagnosis and hides the real fix.
+ */
+export class WorkBuddyCredentialUnreadableError extends Error {
+  readonly code = WORKBUDDY_CREDENTIAL_UNREADABLE_CODE
+  constructor(message: string) {
+    super(message)
+    this.name = 'WorkBuddyCredentialUnreadableError'
+  }
+}
+
 /** Serialize the plugin-owned copy. */
 function ownDocument(credential: WorkBuddyCredential): OwnDocument {
   return { version: OWN_FORMAT_VERSION, credential }
@@ -205,9 +287,29 @@ function parseOwnDocument(text: string): WorkBuddyCredential | undefined {
   const document = parsed as Record<string, unknown>
   if (document['version'] !== OWN_FORMAT_VERSION) return undefined
   if (typeof document['credential'] !== 'object' || document['credential'] === null) return undefined
-  const credential = parseWorkBuddyAuth(JSON.stringify({ auth: document['credential'] }))
-  if (credential === undefined) return undefined
-  return { ...credential, source: 'dsh' }
+  // The owned copy stores the normalized credential itself (camelCase
+  // `expiresAtMs`, identity fields at the top level), not the desktop
+  // document shape. Round-tripping it through parseWorkBuddyAuth reads
+  // `expiresAt` and an `account` object, finds neither, zeroes the expiry,
+  // and drops uid/enterprise/nickname — so a surviving copy refreshed on
+  // every request. Read the stored shape directly instead.
+  const stored = document['credential'] as Record<string, unknown>
+  const accessToken = typeof stored['accessToken'] === 'string' ? stored['accessToken'] : ''
+  if (accessToken === '') return undefined
+  const refreshExpiresAtMs = typeof stored['refreshExpiresAtMs'] === 'number' ? stored['refreshExpiresAtMs'] : undefined
+  const enterpriseId = optionalString(stored['enterpriseId'])
+  const nickname = optionalString(stored['nickname'])
+  return {
+    accessToken,
+    refreshToken: typeof stored['refreshToken'] === 'string' ? stored['refreshToken'] : '',
+    expiresAtMs: typeof stored['expiresAtMs'] === 'number' ? stored['expiresAtMs'] : 0,
+    ...refreshExpiresAtMs === undefined ? {} : { refreshExpiresAtMs },
+    domain: optionalString(stored['domain']) ?? '',
+    uid: optionalString(stored['uid']) ?? '',
+    ...enterpriseId === undefined ? {} : { enterpriseId },
+    ...nickname === undefined ? {} : { nickname },
+    source: 'dsh',
+  }
 }
 
 /** Whether a filesystem error reports an absent path. */
@@ -226,13 +328,23 @@ function isENOENT(error: unknown): boolean {
  */
 export class WorkBuddyCredentialStore {
   private readonly refresh: WorkBuddyStoreOptions['refresh']
+  private readonly unlock: WorkBuddyAuthUnlocker
+  private readonly logger: WorkBuddyStoreOptions['logger']
   private readonly refreshMarginMs: number
   private readonly ownPath: string
   private desktopPathOverride: string | undefined
   private inflight: Promise<WorkBuddyCredential> | undefined
+  /** Shape of the last desktop file read, for diagnosable signed-out states. */
+  private desktopDiagnosis: WorkBuddyAuthTokenShape | undefined
+  /** Why the last at-rest unlock attempt failed, when it did. */
+  private unlockFailure: string | undefined
+  /** Whether the one-line unlock notice has been logged. */
+  private unlockLogged = false
 
   constructor(options: WorkBuddyStoreOptions) {
     this.refresh = options.refresh
+    this.unlock = options.unlock ?? createAtRestUnlocker()
+    this.logger = options.logger
     this.refreshMarginMs = options.refreshMarginMs ?? 5 * 60 * 1000
     this.ownPath = options.ownPath ?? workbuddyOwnAuthPath()
     this.desktopPathOverride = options.desktopPath
@@ -287,6 +399,10 @@ export class WorkBuddyCredentialStore {
   async resolve(): Promise<WorkBuddyCredential> {
     const credential = await this.current()
     if (credential === undefined) {
+      // A sign-in the app sealed at rest is a local format gap, not an auth
+      // failure: throwing it as one would surface "API key is invalid".
+      const unreadable = this.unreadableReason()
+      if (unreadable !== undefined) throw new WorkBuddyCredentialUnreadableError(`workbuddy: ${unreadable}`)
       const candidates = this.resolveDesktopCandidates()
       const desktop = candidates.length > 0 ? candidates.join(' or ') : '(no desktop path on this platform)'
       throw new Error(
@@ -302,11 +418,32 @@ export class WorkBuddyCredentialStore {
     return this.inflight
   }
 
+  /**
+   * Why the stored sign-in is unusable, when the last desktop read could tell.
+   *
+   * Only the encrypted-at-rest shape is reported: every other rejection keeps
+   * the long-standing "nobody is signed in" wording, which is accurate for an
+   * absent or token-less file. When the local unlock failed, its reason is
+   * carried too — that is the difference between "we cannot open this" and
+   * "your key is wrong".
+   */
+  private unreadableReason(): string | undefined {
+    if (this.desktopDiagnosis !== 'encrypted-at-rest') return undefined
+    const path = this.resolveDesktopPath() ?? '(unresolved)'
+    const outcome = this.unlockFailure === undefined
+      ? `the sealed sign-in file at ${path} could not be read`
+      : `unlocking it locally failed (${this.unlockFailure})`
+    return `${WORKBUDDY_ENCRYPTED_AT_REST_REASON}; ${outcome}, so keep the desktop app signed in`
+  }
+
   /** Read-only sign-in summary; never refreshes and never throws. */
   async status(): Promise<WorkBuddyAuthStatus> {
     try {
       const credential = await this.current()
-      if (credential === undefined) return { state: 'signed-out' }
+      if (credential === undefined) {
+        const reason = this.unreadableReason()
+        return reason === undefined ? { state: 'signed-out' } : { state: 'signed-out', reason }
+      }
       return {
         state: 'signed-in',
         expiresAtMs: credential.expiresAtMs,
@@ -315,8 +452,10 @@ export class WorkBuddyCredentialStore {
         ...credential.domain === '' ? {} : { domain: credential.domain },
         source: credential.source,
       }
-    } catch {
-      return { state: 'signed-out' }
+    } catch (error: unknown) {
+      // An unreadable file is a diagnosable signed-out state, not a silent
+      // one: the reading error is what tells the user which file to fix.
+      return { state: 'signed-out', reason: error instanceof Error ? error.message : String(error) }
     }
   }
 
@@ -377,12 +516,54 @@ export class WorkBuddyCredentialStore {
   private async readDesktop(): Promise<WorkBuddyCredential | undefined> {
     for (const desktopPath of this.resolveDesktopCandidates()) {
       try {
-        return parseWorkBuddyAuth(await readFile(desktopPath, 'utf8'))
+        const text = await readFile(desktopPath, 'utf8')
+        const credential = parseWorkBuddyAuth(text)
+        if (credential !== undefined) {
+          this.desktopDiagnosis = undefined
+          this.unlockFailure = undefined
+          return credential
+        }
+        // Remember why an existing file yielded nothing, so status/resolve can
+        // say "sealed at rest" rather than "nobody is signed in".
+        this.desktopDiagnosis = inspectWorkBuddyAuthDocument(text)
+        if (this.desktopDiagnosis === 'encrypted-at-rest') return await this.unlockSealed(text)
+        return undefined
       } catch (error: unknown) {
         if (!isENOENT(error)) throw error
       }
     }
+    this.desktopDiagnosis = undefined
+    this.unlockFailure = undefined
     return undefined
+  }
+
+  /**
+   * Open a sealed sign-in with the local unlocker.
+   *
+   * A failure is recorded rather than thrown: the caller reports it as the
+   * reason the stored sign-in is unusable — accurate and actionable — while the
+   * next read retries, so a transient probe failure never sticks.
+   */
+  private async unlockSealed(text: string): Promise<WorkBuddyCredential | undefined> {
+    try {
+      const recovered = parseWorkBuddyAuth(await this.unlock(text))
+      if (recovered === undefined) {
+        this.unlockFailure = 'the unlocked document carried no access token'
+        return undefined
+      }
+      this.unlockFailure = undefined
+      if (!this.unlockLogged) {
+        this.unlockLogged = true
+        this.logger?.info(
+          'dsh-workbuddy-connect: opened the WorkBuddy desktop sign-in by unlocking its at-rest envelope locally'
+          + ' (the app\'s Electron binary supplied the protector key; nothing was sent anywhere)',
+        )
+      }
+      return { ...recovered, source: 'desktop-unlocked' }
+    } catch (error: unknown) {
+      this.unlockFailure = error instanceof Error ? error.message : String(error)
+      return undefined
+    }
   }
 
   private async readOwn(): Promise<WorkBuddyCredential | undefined> {

@@ -34,12 +34,20 @@ export interface WorkBuddyWebModelBadge {
 
 /** The JSON document the plugin card renders. */
 export type WorkBuddyWebStatus =
-  | { status: 'signed-out' }
+  | {
+    status: 'signed-out'
+    /**
+     * Why the stored sign-in is unusable when that is diagnosable — e.g. the
+     * desktop app sealed the credential at rest. The card renders it verbatim
+     * inside a localized sentence, because the host seam has no locale service.
+     */
+    reason?: string
+  }
   | {
     status: 'signed-in'
     nickname?: string
     domain?: string
-    source?: 'desktop' | 'dsh'
+    source?: 'desktop' | 'desktop-unlocked' | 'dsh'
     expiresAt?: number
     credits?: WorkBuddyWebCredits
     creditsError?: string

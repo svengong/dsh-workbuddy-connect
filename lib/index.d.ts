@@ -3,6 +3,90 @@ import { PiAiAdapter } from "@deepseek-ai/dsh-llm-pi-ai";
 import { Context } from "@deepseek-ai/cordis";
 import { SettingsNamespace } from "@deepseek-ai/dsh-settings";
 import { AttachmentStore } from "@deepseek-ai/dsh-attachment";
+//#region src/at-rest.d.ts
+/**
+ * WorkBuddy 5.6.0 at-rest field encryption.
+ *
+ * The desktop app seals sensitive auth fields as `{"$wbEncrypted":1,"envelope"}`
+ * envelopes, where the envelope is base64 over
+ * `{suite, keyId, nonce, authTag, ciphertext}` sealed with AES-256-GCM under a
+ * per-install *protector* key. That key is not on disk, not in the keychain and
+ * not in the plugin's reach: it is compiled into the app's patched Electron
+ * framework and is only obtainable from the app's own binary, which exposes it
+ * through the private linked binding `electron_browser_workbuddy_storage`.
+ *
+ * This module reuses that accessor the way the app itself does — by running the
+ * app's Electron binary in Node mode (`ELECTRON_RUN_AS_NODE=1`), which boots a
+ * plain Node runtime with no GUI, no app main, no keychain prompt and no
+ * network — derives the protector key exactly as the app does, and opens the
+ * envelopes. The key and the plaintext never touch disk; only the derived key is
+ * memoized in-process.
+ *
+ * @module dsh-workbuddy-connect/at-rest
+ */
+/** Env override for the WorkBuddy desktop executable, for support and tests. */
+declare const WORKBUDDY_APP_BINARY_ENV = "WORKBUDDY_APP_BINARY";
+/** Thrown when the sealed fields cannot be opened locally. */
+declare class WorkBuddyAtRestError extends Error {
+  constructor(message: string);
+}
+/** One sealed field node as it appears in a WorkBuddy JSON document. */
+interface WorkBuddySealedField {
+  $wbEncrypted: 1;
+  envelope: string;
+}
+/** Whether a JSON value is a sealed field node. */
+declare function isSealedField(value: unknown): value is WorkBuddySealedField;
+/**
+ * The protector key the app derives for a build-key payload.
+ *
+ * The hash covers the *base64 text* of the secret, not its decoded bytes — that
+ * detail is what makes the derivation match the app's `keyId`.
+ */
+declare function deriveProtectorKey(secretBase64: string): Buffer;
+/** The app's key id for a derived key: `sha256(key).hex[0:16]`. */
+declare function deriveKeyId(key: Buffer): string;
+/** Which framing an envelope was sealed under. */
+type EnvelopeFraming = 'file' | 'field';
+/**
+ * The GCM additional authenticated data the app builds for one envelope.
+ *
+ * Layout: `"WB-AAD\0" | 0x01 | u32len+"WBEF1"|"WBEV1" | u32len+"sym-v1" |
+ * u32be(suite) | u32len+keyId | framingIndex | 0x00 | 0x00`.
+ */
+declare function envelopeAad(keyId: string, framing: EnvelopeFraming, suite: number): Buffer;
+/**
+ * Replace every sealed field in a parsed JSON document with its plaintext.
+ *
+ * Field envelopes are sealed with the protector key under the `field` framing,
+ * not with the keyblob's master key — the keyblob only matters for the
+ * `asym-v1` whole-file protection this plugin never needs.
+ */
+declare function openSealedFields<T>(document: T, key: Buffer): T;
+/** Where the WorkBuddy desktop executable lives, in probe order. */
+declare function defaultAppBinaryCandidates(): string[];
+/**
+ * Derive the protector key from the app's own binary.
+ *
+ * Single-flight and memoized: the secret is per-install and constant for the
+ * lifetime of this process, so the probe runs at most once.
+ */
+declare function resolveProtectorKey(binaryOverride?: string): Promise<Buffer>;
+/** Drop the memoized key; diagnostics and tests only. */
+declare function resetProtectorKeyCache(): void;
+/**
+ * A document-level unlocker: sealed auth document in, plaintext document out.
+ *
+ * Throws {@link WorkBuddyAtRestError} with a human reason when the unlock is
+ * unavailable, so the caller can report *why* the stored sign-in is unusable
+ * instead of pretending nobody is signed in.
+ */
+type WorkBuddyAuthUnlocker = (text: string) => Promise<string>;
+/** The default unlocker: derive the key from the app binary and open the fields. */
+declare function createAtRestUnlocker(options?: {
+  binary?: string;
+}): WorkBuddyAuthUnlocker;
+//#endregion
 //#region src/upstream.d.ts
 /** WorkBuddy region selected by the credential's login domain. */
 type WorkBuddyRegion = 'cn' | 'global';
@@ -177,7 +261,7 @@ interface WorkBuddyCredential {
   enterpriseId?: string;
   nickname?: string;
   /** Which storage the credential was read from; refreshes are always `dsh`. */
-  source: 'desktop' | 'dsh';
+  source: 'desktop' | 'desktop-unlocked' | 'dsh';
 }
 /** Read-only sign-in summary for status and doctor output. */
 interface WorkBuddyAuthStatus {
@@ -186,7 +270,13 @@ interface WorkBuddyAuthStatus {
   refreshExpiresAtMs?: number;
   nickname?: string;
   domain?: string;
-  source?: 'desktop' | 'dsh';
+  source?: 'desktop' | 'desktop-unlocked' | 'dsh';
+  /**
+   * Why no credential is usable, when the reason is diagnosable rather than
+   * "nobody is signed in" — the desktop app sealing the credential at rest
+   * being the case that matters. Present only on `signed-out`.
+   */
+  reason?: string;
 }
 /** Constructor options; only {@link refresh} is required. */
 interface WorkBuddyStoreOptions {
@@ -196,6 +286,19 @@ interface WorkBuddyStoreOptions {
   ownPath?: string;
   /** Performs the upstream token refresh. */
   refresh: (credential: WorkBuddyCredential) => Promise<WorkBuddyRefreshOutcome>;
+  /**
+   * Opens a sign-in the desktop app sealed at rest. Defaults to the real
+   * unlocker, which derives the protector key from the WorkBuddy desktop
+   * binary; injected in tests so no process is ever spawned.
+   */
+  unlock?: WorkBuddyAuthUnlocker;
+  /**
+   * Optional sink for the one-line notice emitted the first time a sealed
+   * sign-in is opened, so the host log records that it happened.
+   */
+  logger?: {
+    info(message: string): void;
+  };
   /** Refresh this long before actual expiry; default five minutes. */
   refreshMarginMs?: number;
 }
@@ -221,6 +324,40 @@ declare function defaultDesktopAuthPath(): string | undefined;
  * Returns undefined when the document carries no access token.
  */
 declare function parseWorkBuddyAuth(text: string): WorkBuddyCredential | undefined;
+/** How a desktop auth document stores its tokens. */
+type WorkBuddyAuthTokenShape =
+/** A plain string the plugin can use. */
+'plaintext' |
+/** Sealed in a `$wbEncrypted` envelope the plugin cannot open. */
+'encrypted-at-rest' |
+/** Parsed fine, but carries no access token at all. */
+'no-token' |
+/** Not a JSON object this parser recognizes. */
+'unparsable';
+/**
+ * Why {@link parseWorkBuddyAuth} would reject a document.
+ *
+ * The distinction is the whole point: "nobody is signed in" and "signed in,
+ * but the app sealed the token" are different problems with different fixes,
+ * and collapsing both into signed-out makes the second look like a bad key.
+ */
+declare function inspectWorkBuddyAuthDocument(text: string): WorkBuddyAuthTokenShape;
+/** `code` carried by a credential the plugin cannot read; the shim routes on it. */
+declare const WORKBUDDY_CREDENTIAL_UNREADABLE_CODE = "credential_unreadable";
+/** Human-facing reason an otherwise valid sign-in is unusable here. */
+declare const WORKBUDDY_ENCRYPTED_AT_REST_REASON: string;
+/**
+ * Thrown when the desktop app holds a valid sign-in the plugin cannot read.
+ *
+ * Deliberately not an ordinary "not signed in" failure: the credential file is
+ * intact and the user's session is fine. A caller that reports this as an
+ * authentication error makes the Harness render "API 密钥无效" / "API key is
+ * invalid", which is the wrong diagnosis and hides the real fix.
+ */
+declare class WorkBuddyCredentialUnreadableError extends Error {
+  readonly code = "credential_unreadable";
+  constructor(message: string);
+}
 /**
  * Read-only credential store with demand-driven refresh.
  *
@@ -232,10 +369,18 @@ declare function parseWorkBuddyAuth(text: string): WorkBuddyCredential | undefin
  */
 declare class WorkBuddyCredentialStore {
   private readonly refresh;
+  private readonly unlock;
+  private readonly logger;
   private readonly refreshMarginMs;
   private readonly ownPath;
   private desktopPathOverride;
   private inflight;
+  /** Shape of the last desktop file read, for diagnosable signed-out states. */
+  private desktopDiagnosis;
+  /** Why the last at-rest unlock attempt failed, when it did. */
+  private unlockFailure;
+  /** Whether the one-line unlock notice has been logged. */
+  private unlockLogged;
   constructor(options: WorkBuddyStoreOptions);
   /**
    * Configuration precedence for the desktop file: the plugin's configured
@@ -259,6 +404,16 @@ declare class WorkBuddyCredentialStore {
    * Single-flight, so parallel requests share one refresh.
    */
   resolve(): Promise<WorkBuddyCredential>;
+  /**
+   * Why the stored sign-in is unusable, when the last desktop read could tell.
+   *
+   * Only the encrypted-at-rest shape is reported: every other rejection keeps
+   * the long-standing "nobody is signed in" wording, which is accurate for an
+   * absent or token-less file. When the local unlock failed, its reason is
+   * carried too — that is the difference between "we cannot open this" and
+   * "your key is wrong".
+   */
+  private unreadableReason;
   /** Read-only sign-in summary; never refreshes and never throws. */
   status(): Promise<WorkBuddyAuthStatus>;
   /** Remove the plugin-owned copy; the desktop file is untouched. */
@@ -273,6 +428,14 @@ declare class WorkBuddyCredentialStore {
    * file never silently wins over a broken newer one.
    */
   private readDesktop;
+  /**
+   * Open a sealed sign-in with the local unlocker.
+   *
+   * A failure is recorded rather than thrown: the caller reports it as the
+   * reason the stored sign-in is unusable — accurate and actionable — while the
+   * next read retries, so a transient probe failure never sticks.
+   */
+  private unlockSealed;
   private readOwn;
   /** Whether any desktop-file candidate exists as a regular file; diagnostics only. */
   desktopFilePresent(): Promise<boolean>;
@@ -457,4 +620,4 @@ declare const Config: z<Config>;
  */
 declare function apply(ctx: Context, config: Config): void;
 //#endregion
-export { Config, FALLBACK_WORKBUDDY_MODELS, type UpstreamErrorKind, WORKBUDDY_AUTH_FILENAME, WORKBUDDY_AUTH_FILE_ENV, WORKBUDDY_HOST_HEARTBEAT_FILENAME, WORKBUDDY_PROVIDER, WORKBUDDY_SETTINGS_NS, WORKBUDDY_STREAM_IDLE_TIMEOUT_MS, type WorkBuddyAdapter, type WorkBuddyAuthStatus, WorkBuddyCatalog, type WorkBuddyChatResult, type WorkBuddyCredential, WorkBuddyCredentialStore, type WorkBuddyCredits, type WorkBuddyEffort, type WorkBuddyHostHeartbeat, type WorkBuddyModelBilling, type WorkBuddyModelInfo, type WorkBuddyModelReasoning, type WorkBuddyRefreshOutcome, type WorkBuddyShim, WorkBuddyUpstreamClient, type WorkBuddyUpstreamModel, apply, classifyUpstreamError, clearHostHeartbeat, createWorkBuddyAdapter, createWorkBuddyShim, defaultDesktopAuthCandidates, defaultDesktopAuthPath, inject, isHeartbeatProcessAlive, name, normalizeCredits, parseWorkBuddyAuth, prepareChatBody, processStartTimeMs, readHostHeartbeat, regionOf, workbuddyHostHeartbeatPath, workbuddyOwnAuthPath };
+export { Config, FALLBACK_WORKBUDDY_MODELS, type UpstreamErrorKind, WORKBUDDY_APP_BINARY_ENV, WORKBUDDY_AUTH_FILENAME, WORKBUDDY_AUTH_FILE_ENV, WORKBUDDY_CREDENTIAL_UNREADABLE_CODE, WORKBUDDY_ENCRYPTED_AT_REST_REASON, WORKBUDDY_HOST_HEARTBEAT_FILENAME, WORKBUDDY_PROVIDER, WORKBUDDY_SETTINGS_NS, WORKBUDDY_STREAM_IDLE_TIMEOUT_MS, type WorkBuddyAdapter, WorkBuddyAtRestError, type WorkBuddyAuthStatus, type WorkBuddyAuthTokenShape, type WorkBuddyAuthUnlocker, WorkBuddyCatalog, type WorkBuddyChatResult, type WorkBuddyCredential, WorkBuddyCredentialStore, WorkBuddyCredentialUnreadableError, type WorkBuddyCredits, type WorkBuddyEffort, type WorkBuddyHostHeartbeat, type WorkBuddyModelBilling, type WorkBuddyModelInfo, type WorkBuddyModelReasoning, type WorkBuddyRefreshOutcome, type WorkBuddySealedField, type WorkBuddyShim, WorkBuddyUpstreamClient, type WorkBuddyUpstreamModel, apply, classifyUpstreamError, clearHostHeartbeat, createAtRestUnlocker, createWorkBuddyAdapter, createWorkBuddyShim, defaultAppBinaryCandidates, defaultDesktopAuthCandidates, defaultDesktopAuthPath, deriveKeyId, deriveProtectorKey, envelopeAad, inject, inspectWorkBuddyAuthDocument, isSealedField as isEncryptedFieldWrapper, isSealedField, isHeartbeatProcessAlive, name, normalizeCredits, openSealedFields, parseWorkBuddyAuth, prepareChatBody, processStartTimeMs, readHostHeartbeat, regionOf, resetProtectorKeyCache, resolveProtectorKey, workbuddyHostHeartbeatPath, workbuddyOwnAuthPath };

@@ -251,6 +251,9 @@ export function WorkBuddyPluginCard({ t }: WorkBuddyPluginCardProps) {
               ? <>
                   {status.expiresAt === undefined ? null
                     : <p style={bodyStyle}>{t('accessTokenExpires', { time: formatTime(status.expiresAt) })}</p>}
+                  {status.source === 'desktop-unlocked'
+                    ? <p style={bodyStyle}>{t('credentialUnlocked')}</p>
+                    : null}
                   {status.credits === undefined ? null : (
                     <div style={quotaListStyle}>
                       <div style={rowStyle}>
@@ -280,7 +283,13 @@ export function WorkBuddyPluginCard({ t }: WorkBuddyPluginCardProps) {
                   )}
                 </>
               : null}
-            {status.status === 'signed-out' ? <p style={bodyStyle}>{t('signedOutHint')}</p> : null}
+            {status.status === 'signed-out'
+              ? <>
+                  <p style={bodyStyle}>{t('signedOutHint')}</p>
+                  {status.reason === undefined ? null
+                    : <p style={errorStyle}>{t('signedOutReason', { reason: status.reason })}</p>}
+                </>
+              : null}
             {status.status === 'error' ? <p style={errorStyle}>{status.message}</p> : null}
           </div>
         : null}

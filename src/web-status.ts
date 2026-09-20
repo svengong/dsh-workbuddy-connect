@@ -62,7 +62,14 @@ export async function workBuddyWebStatus(
   deps: WorkBuddyStatusRouteOptions,
 ): Promise<WorkBuddyWebStatus> {
   const authStatus = await deps.store.status()
-  if (authStatus.state !== 'signed-in') return { status: 'signed-out' }
+  if (authStatus.state !== 'signed-in') {
+    // A diagnosable reason (e.g. the desktop app sealed the credential at
+    // rest) rides the document so the card explains the state instead of
+    // insisting the user is simply signed out.
+    return authStatus.reason === undefined
+      ? { status: 'signed-out' }
+      : { status: 'signed-out', reason: authStatus.reason }
+  }
   const status: WorkBuddyWebStatus = {
     status: 'signed-in',
     ...authStatus.nickname === undefined ? {} : { nickname: authStatus.nickname },

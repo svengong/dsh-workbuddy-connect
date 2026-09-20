@@ -50,17 +50,20 @@ function rawRequest(options: {
   })
 }
 
-async function startShim(upstreamResponse: () => WorkBuddyChatResult): Promise<Harness> {
+async function startShim(upstreamResponse: () => WorkBuddyChatResult, desktopDocument?: string): Promise<Harness> {
   const dir = await mkdtemp(join(tmpdir(), 'wb-shim-'))
   CLEANUP.push(() => rm(dir, { recursive: true, force: true }))
   const desktop = join(dir, 'workbuddy-desktop.info')
-  await writeFile(desktop, JSON.stringify({
+  await writeFile(desktop, desktopDocument ?? JSON.stringify({
     auth: { accessToken: 'at', refreshToken: 'rt', expiresAt: Date.now() + 3600_000, domain: 'www.codebuddy.cn' },
     account: { uid: 'uid-1' },
   }))
   const store = new WorkBuddyCredentialStore({
     desktopPath: desktop,
     ownPath: join(dir, 'own.json'),
+    // Never spawn the WorkBuddy binary from a unit test: the sealed-credential
+    // case must take the "cannot unlock" path, which is what it asserts.
+    unlock: async () => { throw new Error('unlock disabled in tests') },
     refresh: async () => ({ accessToken: 'unused' }),
   })
   const harness: Harness = {
@@ -103,6 +106,34 @@ describe('WorkBuddy shim', () => {
     // The catalog is populated by the caller (in production, from the local
     // product-config cache); it starts empty and never serves a static list.
     expect(ids.length).toBe(2)
+  })
+
+  it('routes a sealed sign-in as credential_unreadable, not an auth failure', async () => {
+    const harness = await startShim(
+      () => ({ ok: false, status: 500, kind: 'server', message: 'unused' }),
+      JSON.stringify({
+        auth: {
+          accessToken: { $wbEncrypted: 1, envelope: 'eyJzdWl0ZSI6MX0=' },
+          refreshToken: { $wbEncrypted: 1, envelope: 'eyJzdWl0ZSI6MX0=' },
+          expiresAt: Date.now() + 3600_000,
+          domain: 'www.codebuddy.cn',
+        },
+        account: { uid: 'uid-1' },
+      }),
+    )
+    const response = await fetch(`${harness.shim.baseUrl()}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', authorization: `Bearer ${harness.shim.token()}` },
+      body: JSON.stringify({ model: 'auto', stream: false, messages: [{ role: 'user', content: 'hi' }] }),
+    })
+    // 400 rather than 401: the Harness classifies 401 as AUTH and renders
+    // "API 密钥无效", but nothing is wrong with the user's key — the plugin
+    // simply cannot read the credential the desktop app sealed.
+    expect(response.status).toBe(400)
+    const body = await response.json() as { error: { code: string, message: string } }
+    expect(body.error.code).toBe('credential_unreadable')
+    expect(body.error.message).toContain('sealed its stored sign-in')
+    expect(harness.upstreamBodies).toHaveLength(0)
   })
 
   it('streams a successful chat completion and normalizes the body', async () => {

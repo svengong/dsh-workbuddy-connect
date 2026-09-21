@@ -30,7 +30,7 @@
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -143,10 +143,21 @@ step(`reinstalling into profile "${PROFILE}" (${PROFILE_DIR})`)
 try {
   run(DSH_BIN, ['plugin', '--profile', PROFILE, 'remove', PACKAGE])
 } catch {
-  // Not installed yet (first run) — that is fine, `add` below covers it.
-  process.stdout.write('  (was not installed; continuing)\n')
+  // Either it was not installed yet, or the remove itself failed. `add` below is
+  // what actually installs, so continue either way.
+  process.stdout.write('  (remove did not apply; continuing)\n')
 }
-run(DSH_BIN, ['plugin', '--profile', PROFILE, 'add', `file:${REPO}`])
+try {
+  run(DSH_BIN, ['plugin', '--profile', PROFILE, 'add', `file:${REPO}`])
+} catch (error) {
+  // The dangerous window: the dependency entry is gone and the add did not land,
+  // so the plugin is NOT installed right now. Say that loudly with the exact
+  // command that fixes it, instead of exiting on a bare stack trace.
+  process.stderr.write('\n✖ the add step failed, so the plugin is currently NOT installed in this profile.\n')
+  process.stderr.write(`  Restore it with:\n    ${DSH_BIN} plugin --profile ${PROFILE} add file:${REPO}\n`)
+  process.stderr.write(`  cause: ${error instanceof Error ? error.message : String(error)}\n`)
+  process.exit(1)
+}
 
 // --- restore the bundle order ---------------------------------------------
 

@@ -197,7 +197,12 @@ const installedVersion = JSON.parse(readFileSync(join(INSTALLED_DIR, 'package.js
 process.stdout.write(`  ok: ${PACKAGE}@${installedVersion} matches the repo\n`)
 
 // --- what to reload --------------------------------------------------------
-
+//
+// This compares the INSTALLED copy before and after, so it knows what the rebuild
+// changed — but not what the RUNNING host has. A host that predates this install
+// keeps its old code until it reloads, which is why the last line defers to
+// `doctor` for that comparison instead of implying the host is current (the
+// heartbeat's `pluginBuild` vs the CLI's `build` is the authoritative check).
 const hostChanged = installedHost !== createHash('sha256').update(readFileSync(join(INSTALLED_DIR, 'lib/index.js'))).digest('hex')
 const clientChanged = installedClient !== createHash('sha256').update(readFileSync(join(INSTALLED_DIR, 'lib/client.js'))).digest('hex')
 
@@ -207,5 +212,10 @@ if (hostChanged) {
 } else if (clientChanged) {
   process.stdout.write('  Only the client bundle changed → refresh the page (DSH re-serves it).\n')
 } else {
-  process.stdout.write('  Build output is byte-identical to what was installed — nothing to reload.\n')
+  process.stdout.write('  This install changed nothing on disk (the copy already matched this build).\n')
 }
+process.stdout.write(
+  '  Whether the RUNNING host already has it is a separate question:\n'
+  + `    ${DSH_BIN} plugin --profile ${PROFILE} exec ${PACKAGE} doctor --json\n`
+  + '  If `hostHeartbeat.pluginBuild` differs from `build` (or reads unknown), the host is behind.\n',
+)

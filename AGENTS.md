@@ -48,7 +48,7 @@
 
 ## 未发布改动
 
-- **修 `modelErrors` 缺失导致 WorkBuddy 整组在模型选择器里加载失败**（症状：`WorkBuddy 加载失败：Cannot read properties of undefined (reading 'get')`，33 个模型全不可选；而「刷新模型列表」仍报成功，因为它只统计缓存条数）。`src/adapter.ts` 自己构造的 `ResolvedPiAiProviderProfile` 补上 `modelErrors: new Map()`，本地交叉类型 `ProfileWithModelErrors` 承载这个字段（编译所用的 0.1.2-alpha.5 类型里没有它）。同时给 `tests/settings-integration.spec.ts` 加了结构性断言 —— 离线测试对这类"宿主库比编译库新"的要求原理上无效，原因与教训见 [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) 第 6 节。**尚未装进 profile / 未在真机验证**，且版本号未动（仍是 0.4.3）。
+- **修 `modelErrors` 缺失导致 WorkBuddy 整组在模型选择器里加载失败**（症状：`WorkBuddy 加载失败：Cannot read properties of undefined (reading 'get')`，33 个模型全不可选；而「刷新模型列表」仍报成功，因为它只统计缓存条数）。`src/adapter.ts` 自己构造的 `ResolvedPiAiProviderProfile` 补上 `modelErrors: new Map()`，本地交叉类型 `ProfileWithModelErrors` 承载这个字段（编译所用的 0.1.2-alpha.5 类型里没有它）。同时给 `tests/settings-integration.spec.ts` 加了结构性断言 —— 离线测试对这类"宿主库比编译库新"的要求原理上无效，原因与教训见 [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) 第 6 节。**已用 `pnpm run reinstall` 装进 profile**（profile 的 `lib/` 与仓库逐字节一致、含 `modelErrors`）；**但运行中的 host 仍是旧构建**（`b16a2e8164` vs 已安装的 `5948ce7ff4`），因此真机上仍是整组加载失败——`reinstall` 只改磁盘，进程要继续跑启动时加载的模块。**重启 DSH 后生效**，届时 `doctor` 两个构建号应相等、选择器里 WorkBuddy 应恢复为可选分组。版本号未动（仍是 0.4.3）。
 
 ## 最近发布
 

@@ -66,3 +66,45 @@ error TS2717: Subsequent property declarations must have the same type.
 3. `dsh-client-ui-*` 的 slot 注册 spec 字段（`key`/`priority` vs `id`/`order`）；
 4. `dsh-settings` 的 `installSection` 签名（0.1.2-alpha.5 已把 `installSettingsSection()` 换成服务方法，别再回退）；
 5. `dsh-llm-pi-ai` 的 profile 类型字段（上游 v0.3.2 为 0.1.5 补过 `modelErrors`，本 fork 尚未跟进）。
+
+---
+
+## 5. 运行时升级会留下一份陈旧的共享模块农场
+
+**现象**：`~/.dsh/profiles/node_modules/@deepseek-ai/*`（约 460 个软链）指向 `runtime/npm0.1.6-alpha.1`，而活动运行时是 `runtime/current → npm0.1.6-alpha.2`。
+
+**根因是 DSH 自己的行为变更**，不是本仓库的问题。`dsh/lib/profile-boot-*.js` 的 `runProfile`：
+
+| runtime | 默认 `resolutionMode` | 磁盘软链 |
+|---|---|---|
+| 0.1.6-**alpha.1** | `options.resolutionMode ?? "link"` | **会写**（`healProfilesModuleFallback`，materialize = true） |
+| 0.1.6-**alpha.2** | `options.resolutionMode ?? "runtime"` | **不写**（`createProfileResolutionGeneration`，只读） |
+
+alpha.1 默认以 `link` 模式启动，所以农场是它建的；alpha.2 把默认改成 `runtime` 后就不再维护它 —— 升级时既没有迁移也没有清理，留下一份指向旧 runtime 的农场。
+
+**运行中的 host 不受影响**：`runtime` 模式下 `dsh-app-boot/lib/worker/profile-resolution-bootstrap.js` 会给 Node 的 ESM/CJS 加载器打补丁，按计算出的 generation（当前 runtime）路由；遍历 `createRequire(parent).resolve.paths()` 时**遇到 `generation.shared`（即 profiles 目录）就 `break`**，即软链农场被刻意排除在候选之外。所以共享包名一律走当前 runtime。
+
+**但陈旧的农场仍会误导**：编辑器、独立的 `node` 进程、以及任何以 `link` 模式启动的进程都按磁盘解析，看到的是旧 runtime。
+
+> **诊断陷阱（我踩过）**：在独立 node 进程里 `createRequire(...).resolve('@deepseek-ai/dsh-llm')` 走的是**磁盘**，没有内存路由，所以它显示旧 runtime —— **不能据此断定运行中的 host 加载了旧库**。要判断 host 实际用哪个版本，看它发的前端产物（`/` 里的 `assets/index-*.js` 名与各 runtime 的 `dsh-web-frontend/dist/index.html` 对照），那才是进程自身的版本。
+
+**怎么查**：
+
+```sh
+readlink ~/.dsh/profiles/node_modules/@deepseek-ai/dsh-llm   # 农场的指向
+readlink ~/.dsh/runtime/current                              # 活动 runtime
+```
+
+**怎么修**：用 `dsh-app-boot` 自己的物化函数重指（等价于以 `link` 模式启动一次）：
+
+```js
+const { healProfilesModuleFallback } = await import(
+  `${DSH_HOME}/runtime/current/node_modules/@deepseek-ai/dsh-app-boot/lib/index.js`)
+await healProfilesModuleFallback({
+  installAnchor: `${DSH_HOME}/runtime/current/node_modules/@deepseek-ai/dsh/package.json`,
+  home: DSH_HOME,
+  materialize: true,
+})
+```
+
+它内部按 `readlinkSync(link) === entry.packageDir` 判定是否需要重写，所以只在真的过期时才动。（同一函数在 `resolutionMode: "link"` 的启动路径上会被自动调用。）**下次升级 runtime 后还会再陈旧一次** —— alpha.2 起的默认模式不维护农场，这是上游该修的地方。

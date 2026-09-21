@@ -56,7 +56,7 @@ dsh --profile dsh-tui
 
 > Note: the `dsh-tui` profile requires pnpm 11 to install packages (a different pnpm on PATH fails with `ERR_PNPM_UNEXPECTED_STORE` — use `npx pnpm@11`).
 >
-> This repository is **maintained as local git only and is not published to npm** (`package.json` is marked `"private": true`), so it installs by **local path**. pnpm then places a **physical copy** (plain files, not a symlink) in the profile's `node_modules`. See section 4 of [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md) for the three ways to pick up changes (page refresh / plugin reload / DSH restart) and what each one covers.
+> This repository is **maintained as local git only and is not published to npm** (`package.json` is marked `"private": true`), so it installs by **local path**. pnpm **hard-links** the repo's files into the profile's `node_modules`: files nobody rewrites (like `package.json`) reach the installed copy the moment you edit them — **the version changes by itself** — while `lib/` is rewritten by every build, which breaks those links, so **a reinstall is required for code changes**. See section 4 of [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md) for the three ways to pick up changes (page refresh / plugin reload / DSH restart) and what each one covers.
 
 After installing, switch to a WorkBuddy model in the model picker of the interface you chose. On Web, the WorkBuddy card under **Settings → Models** carries the "Refresh model list" button; on TUI, configure `authFile` in `/settings`.
 

@@ -36,7 +36,7 @@
 
 插件在三种 DSH 界面下均可运行：**Web**、**Desktop**、**TUI**。根据你使用的 profile 选对应命令安装。
 
-> 本仓库**只维护本地 git，不发布到 npm**（`package.json` 已标 `"private": true`），所以用**本地路径**安装。装完后 pnpm 会在 profile 的 `node_modules` 里放一份**实体副本**（普通文件，不是软链）。
+> 本仓库**只维护本地 git，不发布到 npm**（`package.json` 已标 `"private": true`），所以用**本地路径**安装。pnpm 会把仓库文件**硬链接**进 profile 的 `node_modules`：`package.json` 这类不被重写的文件一下就会同步过去（**版本号会立刻变**），而 `lib/` 是每次构建重写出来的，链接会断开、**必须重装**。
 
 ```sh
 # 首次安装（Web，推荐）

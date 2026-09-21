@@ -12,8 +12,19 @@
  *   pnpm update <name>     → same
  *   pnpm install --force   → same
  *
- * The node_modules entry is a plain copy (files with link count 1), so the only
- * reliable refresh is to drop the dependency and resolve it again. This script
+ * The node_modules entry is a set of HARD LINKS into this checkout, which makes
+ * the refresh rules uneven and is why a version-only edit can look like it
+ * "applied itself":
+ *
+ *   - files nobody rewrites (package.json, README*, cordis.patch.yml) share an
+ *     inode with this repo, so editing them in place reaches the installed copy
+ *     with no install at all — the version the market shows changes by itself;
+ *   - lib/*.js is deleted and rewritten by every build, so its links break and
+ *     the installed copy keeps the previous bytes until it is reinstalled;
+ *   - files created after the install were never linked.
+ *
+ * The only reliable refresh for the build output is therefore to drop the
+ * dependency and resolve it again. This script
  * does that, restores the `dsh.profile.bundles` order that remove/add shuffles,
  * and verifies the installed copy byte-for-byte.
  *

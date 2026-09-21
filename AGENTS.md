@@ -21,8 +21,9 @@
     装出来的是**硬链接**而不是拷贝 —— 这一点很关键，见下条。
   - **`file:` 安装是硬链接，所以"哪些改动会即时生效"取决于文件是否被重写**（2026-09-21 用 inode 实测更正，此前本文档误写为"复制"）：
     - **未被重写的文件**（`package.json`、`README*`、`cordis.patch.yml`）在 profile 里与仓库**同一 inode**（`links=2`）。**原地编辑会立刻反映到"已安装"副本**，不需要重装 —— 例如只改 `version`，市场里显示的版本号会马上变。
+      - 但**只有"真原地改写"（打开后 truncate 再写回）才保住链接**：2026-09-21 实测 `printf … > file` 保 `links=2`；而**编辑器的"写临时文件 + rename"（本会话的 `edit` 工具、`sed -i`）会换 inode、链接当场断开**，副本留在旧字节——只改 `README*` 后副本就是旧的，仍需重装。判断方法：`stat -f '%i %l %N' <repo文件> <副本文件>`，两边 inode 相同且 `links=2` 才算链接还在。
     - **被构建重写的文件**（`lib/*.js`：`tsdown` 会删除重建，换 inode）**链接当场断开**，副本保留旧字节，必须重装才会更新。安装后才新建的文件根本不会被链接。
-    - 因此**只改 `package.json` 会产生"manifest 已更新、`lib/` 仍是旧的"混合状态**。当前 profile 就处于这种状态（manifest 0.4.3 / `lib/` 里烙着 0.4.4 的构建号），跑一次脚本即可拉平。
+    - 因此**只改 `package.json` 会产生"manifest 已更新、`lib/` 仍是旧的"混合状态**（2026-09-21 曾出现过 manifest 0.4.3 / `lib/` 烙着 0.4.4 构建号的一例），跑一次脚本即可拉平。当前 profile 已拉平：仓库与副本的 `lib/` 逐字节一致，同为 `0.4.3` / `cac75e146e`。
   - **脚本处理了一个副作用**：`remove`/`add` 会把本插件在 `dsh.profile.bundles` 里挪到最后。顺序对本插件无影响（它只依赖 `dsh-base` 提供的 `llm`，而 `dsh-base` 排最前），但会留下非预期 diff，所以脚本自动还原。
   - **脚本用的是 runtime 里的 dsh，不是 PATH 上的**：本机 PATH 上是全局 `dsh@0.1.1-rc.2`，而活动运行时是 `~/.dsh/runtime/current`（0.1.6-alpha.2）。用旧 CLI 驱动 profile 会写出旧 schema 的 manifest，所以脚本优先取 `$DSH_HOME/runtime/current/node_modules/.bin/dsh`，可用 `DSH_BIN=` 覆盖。
   - **生效范围**：脚本会报告。只改客户端包（`lib/client.js`）时刷新页面即可（DSH 会重新下发 bundle）；改了 Host 侧代码需要重载插件或重启 DSH。见 [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) 第 4 节。

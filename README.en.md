@@ -70,7 +70,7 @@ After installing, switch to a WorkBuddy model in the model picker of the interfa
 dsh-workbuddy-connect-oo doctor --json
 ```
 
-It reports two **build ids**: `build` is the copy you are executing, and `hostHeartbeat.pluginBuild` is the host actually running inside DSH. If they differ (or read `unknown`), the host is still on an older build — refresh the page or restart DSH. The version number alone cannot tell them apart (it is always `0.4.2`).
+It reports two **build ids**: `build` is the copy you are executing, and `hostHeartbeat.pluginBuild` is the host actually running inside DSH. If they differ (or read `unknown`), the host is still on an older build — refresh the page or restart DSH. The version number alone cannot tell them apart, because one version can correspond to several builds.
 
 ## Known limitations
 

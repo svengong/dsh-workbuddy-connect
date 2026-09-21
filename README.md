@@ -78,7 +78,7 @@ dsh --profile dsh-tui
 dsh-workbuddy-connect-oo doctor --json
 ```
 
-它同时报两个**构建号**：`build` 是你正在执行的这份副本，`hostHeartbeat.pluginBuild` 是 **DSH 里正在运行的 host**。两者不一致（或显示 `unknown`）就说明 host 还是旧构建，需要刷新页面或重启 DSH —— 光看版本号（恒为 `0.4.2`）分辨不出来。
+它同时报两个**构建号**：`build` 是你正在执行的这份副本，`hostHeartbeat.pluginBuild` 是 **DSH 里正在运行的 host**。两者不一致（或显示 `unknown`）就说明 host 还是旧构建，需要刷新页面或重启 DSH —— 光看版本号分辨不出来，因为同一版本可以对应多次构建。
 
 ## 已知限制
 

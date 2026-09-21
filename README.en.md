@@ -70,6 +70,8 @@ After installing, switch to a WorkBuddy model in the model picker of the interfa
 dsh-workbuddy-connect-oo doctor --json
 ```
 
+It reports two **build ids**: `build` is the copy you are executing, and `hostHeartbeat.pluginBuild` is the host actually running inside DSH. If they differ (or read `unknown`), the host is still on an older build — refresh the page or restart DSH. The version number alone cannot tell them apart (it is always `0.4.2`).
+
 ## Known limitations
 
 - Verified on macOS with the DSH Web / Desktop / TUI profile (Node 22+); the Web half is tested against DSH `0.1.6-alpha.2`. Windows probes Local and Roaming AppData in order; WSL first reads credentials from the mounted Windows user profile. If the Windows and Linux user names differ and Windows environment variables are not forwarded into WSL, point `WORKBUDDY_AUTH_FILE` at the actual file.

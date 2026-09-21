@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
-import { WORKBUDDY_CONNECT_VERSION } from './version.ts'
+import { WORKBUDDY_CONNECT_BUILD, WORKBUDDY_CONNECT_VERSION } from './version.ts'
 
 /** Basename of the host heartbeat file inside the Harness home. */
 export const WORKBUDDY_HOST_HEARTBEAT_FILENAME = '.workbuddy-host-heartbeat.json'
@@ -28,6 +28,12 @@ export interface WorkBuddyHostHeartbeat {
   version: typeof HEARTBEAT_FORMAT_VERSION
   package: 'dsh-workbuddy-connect-oo'
   pluginVersion: string
+  /**
+   * Source build id of the bundle that registered the provider. Lets `doctor`
+   * say whether the RUNNING host is the build you just installed — the version
+   * alone cannot (see `src/version.ts`).
+   */
+  pluginBuild: string
   /** Epoch milliseconds when the host registered the provider. */
   registeredAt: number
   /** Host process PID, to distinguish a stale heartbeat after a crash. */
@@ -49,6 +55,7 @@ export async function writeHostHeartbeat(): Promise<void> {
     version: HEARTBEAT_FORMAT_VERSION,
     package: 'dsh-workbuddy-connect-oo',
     pluginVersion: WORKBUDDY_CONNECT_VERSION,
+    pluginBuild: WORKBUDDY_CONNECT_BUILD,
     registeredAt: Date.now(),
     pid: process.pid,
   }
@@ -88,6 +95,7 @@ export async function readHostHeartbeat(): Promise<WorkBuddyHostHeartbeat | unde
         version: HEARTBEAT_FORMAT_VERSION,
         package: 'dsh-workbuddy-connect-oo',
         pluginVersion: typeof parsed.pluginVersion === 'string' ? parsed.pluginVersion : 'unknown',
+        pluginBuild: typeof parsed.pluginBuild === 'string' ? parsed.pluginBuild : 'unknown',
         registeredAt: parsed.registeredAt,
         pid: parsed.pid,
       }

@@ -78,6 +78,8 @@ dsh --profile dsh-tui
 dsh-workbuddy-connect-oo doctor --json
 ```
 
+它同时报两个**构建号**：`build` 是你正在执行的这份副本，`hostHeartbeat.pluginBuild` 是 **DSH 里正在运行的 host**。两者不一致（或显示 `unknown`）就说明 host 还是旧构建，需要刷新页面或重启 DSH —— 光看版本号（恒为 `0.4.2`）分辨不出来。
+
 ## 已知限制
 
 - 在 macOS 的 DSH Web / Desktop / TUI profile（Node 22+）下验证通过；Web 端已在 DSH `0.1.6-alpha.2` 上实测。Windows 会依次探测 Local 与 Roaming AppData；WSL 会优先从挂载的 Windows 用户目录读取登录凭据。若 Windows 与 Linux 用户名不同且 Windows 环境变量未传入 WSL，请通过 `WORKBUDDY_AUTH_FILE` 指定实际位置。

@@ -68,6 +68,7 @@ describe('host heartbeat', () => {
       version: 1 as const,
       package: 'dsh-workbuddy-connect-oo' as const,
       pluginVersion: '0.0.0-test',
+      pluginBuild: 'testbuild',
       registeredAt: (startAtMs as number) - 60_000, // 1 min before this process started
       pid: process.pid,
     }
@@ -97,5 +98,28 @@ describe('host heartbeat', () => {
       'utf8',
     )
     expect(await readHostHeartbeat()).toBeUndefined()
+  })
+
+  it('reads a pre-pluginBuild heartbeat as build "unknown"', async () => {
+    // A host running an older build wrote no `pluginBuild`. The format version
+    // did not change, so such a file must still validate — with the build
+    // reported as unknown rather than the whole heartbeat being dropped.
+    root = await mkdtemp(join(tmpdir(), 'wb-heartbeat-legacy-'))
+    vi.stubEnv('DSH_HOME', root)
+    const { writeFile } = await import('node:fs/promises')
+    await writeFile(
+      workbuddyHostHeartbeatPath(),
+      JSON.stringify({
+        version: 1,
+        package: 'dsh-workbuddy-connect-oo',
+        pluginVersion: '0.4.2',
+        registeredAt: Date.now(),
+        pid: process.pid,
+      }),
+      'utf8',
+    )
+    const heartbeat = await readHostHeartbeat()
+    expect(heartbeat?.pluginVersion).toBe('0.4.2')
+    expect(heartbeat?.pluginBuild).toBe('unknown')
   })
 })

@@ -5,7 +5,7 @@ import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { WorkBuddyCredentialStore, workbuddyOwnAuthPath } from './auth.ts'
 import { WorkBuddyUpstreamClient } from './upstream.ts'
-import { WORKBUDDY_CONNECT_VERSION } from './version.ts'
+import { WORKBUDDY_CONNECT_BUILD, WORKBUDDY_CONNECT_VERSION } from './version.ts'
 import { isHeartbeatProcessAlive, readHostHeartbeat, workbuddyHostHeartbeatPath } from './host-heartbeat.ts'
 import { readProductConfigModels, resolveProductConfigPath } from './v3-config.ts'
 
@@ -69,6 +69,12 @@ async function doctor(jsonOutput: boolean): Promise<number> {
     schemaVersion: JSON_SCHEMA_VERSION,
     package: 'dsh-workbuddy-connect',
     version: WORKBUDDY_CONNECT_VERSION,
+    /**
+     * Source build id of THIS CLI copy. Compare with
+     * `hostHeartbeat.pluginBuild` to see whether the running host already is the
+     * build you installed — the version alone cannot tell two builds apart.
+     */
+    build: WORKBUDDY_CONNECT_BUILD,
     node: process.version,
     desktopAuthFile: {
       path: store.desktopAuthPath() ?? '(no platform default; set WORKBUDDY_AUTH_FILE)',
@@ -78,7 +84,7 @@ async function doctor(jsonOutput: boolean): Promise<number> {
     hostHeartbeat: {
       path: workbuddyHostHeartbeatPath(),
       present: heartbeat !== undefined,
-      ...heartbeat === undefined ? {} : { registeredAt: heartbeat.registeredAt, pid: heartbeat.pid },
+      ...heartbeat === undefined ? {} : { registeredAt: heartbeat.registeredAt, pid: heartbeat.pid, pluginBuild: heartbeat.pluginBuild },
       processAlive: hostAlive,
     },
     modelCatalog,
@@ -104,9 +110,9 @@ async function doctor(jsonOutput: boolean): Promise<number> {
     printJson(report)
   } else {
     process.stdout.write([
-      `WorkBuddy Connect ${WORKBUDDY_CONNECT_VERSION} on ${process.version}`,
+      `WorkBuddy Connect ${WORKBUDDY_CONNECT_VERSION}+${WORKBUDDY_CONNECT_BUILD} on ${process.version}`,
       `Desktop auth file: ${report.desktopAuthFile.present ? 'present' : 'missing'} (${report.desktopAuthFile.path})`,
-      `Host bundle: ${hostAlive ? `running (pid ${heartbeat!.pid})` : heartbeat !== undefined ? 'stale heartbeat (process exited)' : 'not started'}`,
+      `Host bundle: ${hostAlive ? `running (pid ${heartbeat!.pid}, build ${heartbeat!.pluginBuild})` : heartbeat !== undefined ? 'stale heartbeat (process exited)' : `not started (CLI build ${WORKBUDDY_CONNECT_BUILD})`}`,
       `Sign-in state: ${report.signIn}${status.reason === undefined ? '' : ` (${status.reason})`}`,
       ...status.source === 'desktop-unlocked'
         ? ['Sign-in source: desktop encrypted store (unlocked locally on this machine)']
@@ -134,9 +140,11 @@ async function status(jsonOutput: boolean): Promise<number> {
         schemaVersion: JSON_SCHEMA_VERSION,
         package: 'dsh-workbuddy-connect',
         version: WORKBUDDY_CONNECT_VERSION,
+        build: WORKBUDDY_CONNECT_BUILD,
         status: 'signed-out',
         ...authStatus.reason === undefined ? {} : { signInReason: authStatus.reason },
         hostBundle: hostState,
+        ...heartbeat === undefined ? {} : { hostBuild: heartbeat.pluginBuild },
       })
     } else {
       process.stdout.write(
@@ -160,6 +168,7 @@ async function status(jsonOutput: boolean): Promise<number> {
       schemaVersion: JSON_SCHEMA_VERSION,
       package: 'dsh-workbuddy-connect',
       version: WORKBUDDY_CONNECT_VERSION,
+      build: WORKBUDDY_CONNECT_BUILD,
       status: 'signed-in',
       ...expiresAt === undefined ? {} : { accessTokenExpires: expiresAt },
       ...authStatus.nickname === undefined ? {} : { nickname: authStatus.nickname },
@@ -168,6 +177,7 @@ async function status(jsonOutput: boolean): Promise<number> {
       credits: credits?.total,
       ...credits?.error === undefined ? {} : { creditsError: credits.error },
       hostBundle: hostState,
+      ...heartbeat === undefined ? {} : { hostBuild: heartbeat.pluginBuild },
     })
     return 0
   }

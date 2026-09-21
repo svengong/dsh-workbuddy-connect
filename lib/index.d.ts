@@ -549,6 +549,12 @@ interface WorkBuddyHostHeartbeat {
   version: typeof HEARTBEAT_FORMAT_VERSION;
   package: 'dsh-workbuddy-connect-oo';
   pluginVersion: string;
+  /**
+   * Source build id of the bundle that registered the provider. Lets `doctor`
+   * say whether the RUNNING host is the build you just installed — the version
+   * alone cannot (see `src/version.ts`).
+   */
+  pluginBuild: string;
   /** Epoch milliseconds when the host registered the provider. */
   registeredAt: number;
   /** Host process PID, to distinguish a stale heartbeat after a crash. */

@@ -5,5 +5,3 @@ pnpm-workspace.yaml
 coverage/
 *.log
 .DS_Store
-.last-merged-tag
-.last-version-commit

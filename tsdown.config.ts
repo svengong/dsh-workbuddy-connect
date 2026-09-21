@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { UserConfig } from 'tsdown'
 
 const PLUGIN_ID = 'dsh-workbuddy-connect-oo'
@@ -8,8 +11,46 @@ const PACKAGE_VERSION = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
 ).version as string
 
-/** Build-time define map; `src/version.ts` reads `__DSH_WORKBUDDY_VERSION__`. */
-const VERSION_DEFINE = { __DSH_WORKBUDDY_VERSION__: JSON.stringify(PACKAGE_VERSION) }
+/**
+ * Stable identity of the sources this bundle was built from.
+ *
+ * Why a content hash and not a git revision: `lib/` is committed in this repo,
+ * so a baked `HEAD` could only ever name the *parent* commit (a commit's hash
+ * cannot contain itself) — off by one and therefore misleading. A hash over
+ * `src/` changes exactly when the code changes, is reproducible for identical
+ * sources, and needs no git at build time.
+ *
+ * Byte-level comparison stays with `scripts/reinstall-local.mjs`; this id exists
+ * so `doctor` can report which build the CLI and the *running* host each came
+ * from (the host's id rides the heartbeat).
+ * @param dir - absolute directory to hash, walked in sorted order.
+ * @returns the first 10 hex characters of the sha256 over paths and contents.
+ */
+function sourceBuildId(dir: string): string {
+  const hash = createHash('sha256')
+  const walk = (current: string): void => {
+    for (const entry of readdirSync(current, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const full = join(current, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.isFile()) {
+        hash.update(relative(dir, full))
+        hash.update('\0')
+        hash.update(readFileSync(full))
+        hash.update('\0')
+      }
+    }
+  }
+  walk(dir)
+  return hash.digest('hex').slice(0, 10)
+}
+
+const BUILD_ID = sourceBuildId(fileURLToPath(new URL('./src', import.meta.url)))
+
+/** Build-time define map; `src/version.ts` reads both symbols. */
+const VERSION_DEFINE = {
+  __DSH_WORKBUDDY_VERSION__: JSON.stringify(PACKAGE_VERSION),
+  __DSH_WORKBUDDY_BUILD__: JSON.stringify(BUILD_ID),
+}
 
 const CLIENT_EXTERNALS = [
   'react',

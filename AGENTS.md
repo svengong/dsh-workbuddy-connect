@@ -23,6 +23,7 @@
   - **脚本用的是 runtime 里的 dsh，不是 PATH 上的**：本机 PATH 上是全局 `dsh@0.1.1-rc.2`，而活动运行时是 `~/.dsh/runtime/current`（0.1.6-alpha.2）。用旧 CLI 驱动 profile 会写出旧 schema 的 manifest，所以脚本优先取 `$DSH_HOME/runtime/current/node_modules/.bin/dsh`，可用 `DSH_BIN=` 覆盖。
   - **生效范围**：脚本会报告。只改客户端包（`lib/client.js`）时刷新页面即可（DSH 会重新下发 bundle）；改了 Host 侧代码需要重载插件或重启 DSH。见 [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) 第 4 节。
   - 安装形态变更史：v0.4.2 之前是 `github:` 固定 commit pin（`svengong/dsh-workbuddy-connect#<sha>`），随远程断开而废弃。
+  - **怎么判断"运行中的 host 是不是我刚构建的那份"**：`doctor --json` 的 `build` 是本 CLI 副本的构建号（`src/` 内容哈希，同源同号、可复现），`hostHeartbeat.pluginBuild` 是**运行中 host** 写心跳时的构建号。两者不一致就说明 host 还在跑旧代码 —— 这正是版本号（恒为 `0.4.2`）区分不了的地方。本次改动之前构建的 host 会报 `unknown`。
 
 ## 待办
 

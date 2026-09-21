@@ -14,17 +14,11 @@ Brings every model in the WorkBuddy desktop app (GLM-5.3, GLM-5.2, DeepSeek-V4-P
 
 - **Thinking effort**: the model picker exposes the per-model effort levels the upstream declares (e.g. GLM-5.3 offers low / high / xhigh, GLM-5.3-Flash low / high / max), forwarded as `reasoning_effort` on the wire.
 
-- **Limited-time free at a glance**: the status card marks models that are currently free / limited-time free / on a night discount (following the upstream `credits` and `tags` live).
+- **Limited-time free at a glance**: the model name carries the current free / limited-time free / night-discount state (following the upstream `credits` and `tags` live).
 
-- **Rate ratio at a glance**: every model in the selection list carries its credits multiplier on the name (e.g. `GLM-5.2 · x0.79`, `Hy3 · x0.00`), in both the `/model` popup and the composer seat; the status card adds a localized rate line too. The rate is display-only — requests always use the model id.
+- **Rate ratio at a glance**: every model in the selection list carries its credits multiplier on the name (e.g. `GLM-5.2 · x0.79`, `Hy3 · x0.00`), in both the `/model` popup and the composer seat. The rate is display-only — requests always use the model id.
 
-- **Info at a glance**: Settings → Plugins → DSH WorkBuddy Connect card
-
-![Settings card showing the plugin](assets/2.png)
-
-Expand the card to see the account, token validity, and remaining credit.
-
-![Settings card showing account and remaining credit](assets/3.png)
+- **Manual model-list refresh**: Settings → Models → the WorkBuddy card carries a "Refresh model list" button. The list comes from the WorkBuddy desktop app's local cache, so after the app rewrites it, one click makes DSH re-read and republish the models — **no DSH restart**. See [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md).
 
 ## Install
 
@@ -35,10 +29,6 @@ The plugin runs under all three DSH interfaces: **Web**, **Desktop**, and **TUI*
 ```sh
 # Web (recommended; ships prebuilt artifacts)
 dsh plugin --profile web add dsh-workbuddy-connect
-dsh web
-
-# or install the Web version from the GitHub source
-dsh plugin --profile web add github:corrinehu/dsh-workbuddy-connect
 dsh web
 ```
 
@@ -54,17 +44,24 @@ dsh plugin --profile dsh-tui add dsh-workbuddy-connect
 dsh --profile dsh-tui
 ```
 
-> Note: the `dsh-tui` profile requires pnpm 11 to install packages (a different pnpm on PATH fails with `ERR_PNPM_UNEXPECTED_STORE` — use `npx pnpm@11`); verified on dsh `0.1.1-rc.2`.
+> Note: the `dsh-tui` profile requires pnpm 11 to install packages (a different pnpm on PATH fails with `ERR_PNPM_UNEXPECTED_STORE` — use `npx pnpm@11`).
 
-After installing, switch to a WorkBuddy model in the model picker of the interface you chose. On Web, the settings card (Settings → Plugins → DSH WorkBuddy Connect) shows the account, token validity, and remaining credit; on TUI, configure `authFile` in `/settings`.
+After installing, switch to a WorkBuddy model in the model picker of the interface you chose. On Web, the WorkBuddy card under **Settings → Models** carries the "Refresh model list" button; on TUI, configure `authFile` in `/settings`.
 
 ## CLI
 
-`dsh plugin --profile <web|desktop|dsh-tui> exec dsh-workbuddy-connect status`: sign-in state and remaining credit (`--json` for machine-readable output; `doctor` for diagnostics and `logout` for credential cleanup are also available).
+`dsh-workbuddy-connect-oo status`: sign-in state and remaining credit (`--json` for machine-readable output; `doctor` for diagnostics and `logout` for credential cleanup are also available).
+
+`doctor --json` also reports where the model cache lives and how many models it holds — the first thing to check when the model list looks stale:
+
+```sh
+dsh-workbuddy-connect-oo doctor --json
+```
 
 ## Known limitations
 
-- Verified on macOS with the DSH Web / Desktop / TUI profile (`0.1.1-rc.2`+, Node 22+). Windows probes Local and Roaming AppData in order; WSL first reads credentials from the mounted Windows user profile. If the Windows and Linux user names differ and Windows environment variables are not forwarded into WSL, point `WORKBUDDY_AUTH_FILE` at the actual file.
+- Verified on macOS with the DSH Web / Desktop / TUI profile (Node 22+); the Web half is tested against DSH `0.1.6-alpha.2`. Windows probes Local and Roaming AppData in order; WSL first reads credentials from the mounted Windows user profile. If the Windows and Linux user names differ and Windows environment variables are not forwarded into WSL, point `WORKBUDDY_AUTH_FILE` at the actual file.
+- The model list is read only from the WorkBuddy desktop app's local cache; the plugin never fetches a catalog over the network. New models therefore require the desktop app to refresh that cache first, after which the "Refresh model list" button makes DSH re-read it. An unreadable cache serves an empty list for that provider rather than falling back to a possibly stale built-in catalog.
 - Relies on WorkBuddy client interfaces (not a public API); the plugin may need updates as WorkBuddy changes.
 
 ## Disclaimer

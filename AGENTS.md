@@ -1,26 +1,41 @@
 # dsh-workbuddy-connect Agent Notes
 
+## 仓库定位：本地 git，无远程
+
+本仓库自 v0.4.2 起**只维护本地 git**：不推送、不发布、不与上游同步。原 `fork`（svengong）与 `origin`（corrinehu 上游）两个 remote 已删除，`AGENTS.md` 里过去的"合上游流程"不再适用。
+
+- **不要 `npm publish`、不要打 release tag、不要 `git push`**，除非用户明确要求。
+- 版本号是本 fork **自己的线**，与上游不共享。已知历史撞号：本仓库的 `v0.3.0`（`f7671da`）与 `v0.4.0`（`36e27e4`）与上游同名 tag 指向**不同提交**。后续升版本请避开上游已用过的号段，或改用带后缀的形式。
+- 部署方式：profile 用 `github:` 固定 commit pin（`dsh plugin --profile web add github:svengong/dsh-workbuddy-connect#<sha>`）。remote 删掉后，改本地代码后想生效需要改为本地路径安装（`dsh plugin --profile web add /path/to/repo`）——**pin 与 remote 的处理方式变更时，本文档需同步更新。**
+
 ## 待办
 
-- PR #4（WSL 凭据发现）已合并进 v0.2.4：等作者 CallMeSoul 基于 npm 包回归验证（PR 评论里已请求）。
+- 无。上游 PR 追踪已随远程断开而终止。
 
 ## 本 fork（-oo）与上游的差异
 
-本仓库是 `dsh-workbuddy-connect-oo`，相对上游 corrinehu/dsh-workbuddy-connect 的独立演进，合上游更新时需注意以下偏离：
+本仓库是 `dsh-workbuddy-connect-oo`，相对上游 corrinehu/dsh-workbuddy-connect 的独立演进。以下偏离是**设计决定**，不是待办：
 
-- **插件身份**：包名 `dsh-workbuddy-connect-oo`，provider 路由 `workbuddy-oo`，bin 名同步改名；与上游插件可并存不冲突。
-- **模型目录来源**：`fetchModels()` 两级——优先读本地 `/v3/config` 缓存（`~/.workbuddy/cache/acc-product-config-v3.json`，可用 `ACC_PRODUCT_CONFIG_PATH` 覆盖，无需凭据），缓存不可读时回退网络端点 `/console/enterprises/personal/models`（需凭据，目录更窄，缺 `hy4-preview-ioa`、`echo` 等 cli-only 模型），两级皆败才用静态兜底目录。
-  - **合上游时的坑**：上游对模型字段的改动（如 v0.2.5 的 `supportsImages`、v0.2.6 的 reasoning/billing 解析）落在网络解析分支里，直接合并会静默失效——必须同步补进 `src/v3-config.ts` 的 `toModel()`（v0.3.1 起两者共用 `resolveUpstreamReasoning` / `resolveUpstreamBilling`，一处解析两处生效）。
+- **插件身份**：包名 `dsh-workbuddy-connect-oo`，provider 路由 `workbuddy-oo`，bin 名 `dsh-workbuddy-connect-oo`；与上游插件可并存不冲突。
+- **模型目录只读本地缓存**（`7d10f7b` 起）：`fetchModels()` 只读 `~/.workbuddy/cache/acc-product-config-v3.json`（`ACC_PRODUCT_CONFIG_PATH` 可覆盖，无需凭据），**没有网络兜底、没有静态兜底**——读不到就服务空目录并记日志。
+  - 目的：插件列表永远不会和桌面 App 自己显示的不一致（上游是"网络为主 + 静态兜底"，两者会出现漂移）。
+  - 代价：**缓存过期时只能靠桌面 App 刷新 + 手动触发重读**，见 `docs/model-catalog-refresh.md`。
+  - `src/catalog.ts` 的 `FALLBACK_WORKBUDDY_MODELS` 仅作为公开导出与诊断资料保留，运行时不再初始化用它。
+  - 上游对模型字段的解析改动（`supportsImages`、reasoning/billing）现在集中在本 fork 的解析器里；引用上游实现时注意其网络解析分支与本仓库的本地解析分支是**两处**，不要只改一处。
 - **推理强度透传**：`src/adapter.ts` 按三优先级解析档位（后端 `supportedEfforts` → 内置 `BUILTIN_THINKING_LEVEL_MAP` → 固定 `effort` 单档），并带 `deepseek -ioa` 档位补全。v0.3.1 合并上游 v0.2.6 后的语义：**声明集模型**恰好暴露声明的档位——`off` 亦然，它必须由上游 `supportedEfforts` 声明，`canDisableThinking` 无权单独授权（否则每次默认请求都会发 `reasoning_effort:"off"` 被上游 400 拒绝，见「未发布修复」）；**旧形态模型**（`{effort, summary}`，无声明集）保留本 fork 的单档策略——只暴露默认 effort 一档（上游 v0.2.6 是完全不暴露控件；其 alpha 分支实测旧形态上游接受完整档位集 low/medium/high/xhigh/max 全 200，但桌面端对旧形态模型逐模型区别显示控件，可选集是客户端私有知识，单档是「暴露控件但只给安全值」的折中）。
 - **上游请求身份**：UA 用 `WorkBuddy/5.3.14` 并附 `X-IDE-*` 头；按 `enterpriseId` 走企业模型端点。
 
 ## 未发布改动
 
-- **默认档位 = 声明集的次高档**：`WorkBuddyPiAiAdapter.resolveModel` 把 `reasoning.defaultEffort` 重写成该模型 `supportedEfforts` 的**次高档**（只有一个档位时就是该档）。DSH 的语义是「`defaultEffort` 会被 materialize 进未指定档位的请求，且 picker 只在它缺席时才提供 "provider default" 项」（`dsh-llm` 的 `LlmModelReasoningInfo` 类型注释 + `dsh-client-ui-model-selection` 的 `choices` / `effortChoices`），所以上报它同时达成两件事：默认请求带上一个上游必然接受的声明值，picker 里不再出现「默认」选项。上游自己的 `defaultEffort`（观测到的都是 `high`）不采用——它不等于次高（如 `gpt-6-astra` 五档的次高是 `xhigh`），且上游的接受集只由 `supportedEfforts` 定义。只在 `resolveModel` 生效：`LlmModelInfo`（list 形态）没有 reasoning 字段，picker 的分组目录由 resolved 答案构建。边界：两档模型（如 `hy3-ioa` / `deepseek-v4-pro-ioa` 的 `['low','high']`、`['high','xhigh']`）的次高即较低那档。
-
-- **默认档位 400（code 11150）修复**：`toPiModel` 曾把 `canDisableThinking: true` 的模型的 `thinkingLevelMap.off` 映射成字符串 `'off'`。pi-ai 对 `off` 的语义是「未选档位时发送 `thinkingLevelMap.off`」（`openai-completions.js` 的 `typeof offValue === "string"` 分支），于是每次不带显式档位的请求都会发 `reasoning_effort: "off"` —— 上游按模型的 `supportedEfforts` 严格校验（`deepseek-v4.1-flash` 只声明 `['low','high','max']`），返回 HTTP 400 code 11150 "the reasoning effort value is not supported by the current model"。`hy4-preview-ioa` 不出问题是因为它 `canDisableThinking: false` → `map.off = null` → 不发字段。修复：`off` 只在上游 `supportedEfforts` 真的声明它时才映射（`WorkBuddyEffort` 词表同步收编 `'off'`，参考 workbuddy2api 的 `effortRank`）；`canDisableThinking` 降级为纯上游事实镜像，不再参与档位暴露。桌面端 CLI 的关闭语义是「删除 `reasoning_effort`」而非发 `off`（`ThinkingFormatTranslatorRule` 的 `deepseek` 分支 / `configureThinkingSettings`），与此一致。已验证：修复后无档位请求不再带 `reasoning_effort`，显式 low/high/max 正常透传（pi-ai 0.84.4 与运行时 0.85.1 的 `getSupportedThinkingLevels` / off 分支逻辑一致）。
+- 无。工作树与 `main` 一致时即代表当前版本就是全部内容。
 
 ## 最近发布
+
+- **v0.4.2（2026-09-20）**：刷新按钮落位修正 —— 从 `settings.models.footer`（list）改到 `settings.models.provider-card`（keyed，`key='workbuddy-oo'`），按钮现在显示在「设置 → 模型」的 WorkBuddy 卡片**内部**，不再单独落在页面底部。机制与契约见 [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md)。**未打 tag。**
+
+- **v0.4.1（2026-09-20）**：模型页新增「刷新模型列表」（Host 重读缓存 + `AdapterRegistrationHandle.replace()` 重发路由，客户端凭 `llm/adapters-updated` 自行重取目录，无需重启 DSH）；同时删掉注册在 `settings.plugin.item` 的账号/积分卡片——该槽位在 DSH `0.1.6-alpha.2` 已移除，卡片永远不会渲染。新增 `tests/web-refresh.spec.ts`（路由门禁与返回形状）与 `tests/refresh-integration.spec.ts`（真 `LlmRuntime` 验证 `replace()` 确实重播事件、注册表开始回答新列表）。**未打 tag。**
+
+- **v0.4.0（2026-09-20，tag `v0.4.0` → `36e27e4`）**：解锁 WorkBuddy 5.6.0 的 at-rest 加密凭据，并让失败原因可诊断。**本条之前列在「未发布改动」里的两项也含在本版**：① 默认档位 = 声明集次高档（`WorkBuddyPiAiAdapter.resolveModel` 重写 `reasoning.defaultEffort`）；② 默认档位 400（code 11150）修复（`off` 只在 `supportedEfforts` 真的声明它时才映射，`canDisableThinking` 不再参与档位暴露）。两项的完整推理见下文「发布历史」。
 
 - **v0.2.6（2026-09-02）**：PR #9（winliyou）回移费率显示与思考强度 + 跟进调整。**思考强度改为「仅声明集」（#9 跟进）**：#9 对无 `supportedEfforts` 声明的旧形模型（`{effort, summary}` 形态，11 个）回退到完整 pi-ai 梯度，含 `minimal`——但 `minimal` 既不在其实测清单（low/medium/high/xhigh/max，且只实测了 auto 一个模型）也不在上游 effort 词汇表；App 端对旧形模型本身区别对待（GLM-5.2 有思考控件、MiniMax-M3 / Kimi-K2.6 没有），可选集是客户端私有知识；workbuddy2api 亦按声明门控、出集降级而非透传。故调整为「仅声明集」：有 `supportedEfforts` 的 4 个模型（hy4-preview / hy3-x / glm-5.3 / glm-5.3-flash）按声明暴露档位，其余模型不暴露思考控件、请求不带 `reasoning_effort`，上游用自己的默认档（与 #9 之前行为一致）。后续若抓包确认客户端对旧形模型实际发送的值，再按证据逐模型放开。
 
@@ -37,6 +52,22 @@
 - **v0.2.3（2026-08-26）**：修复版本显示瑕疵（产物烙旧版本号）+ README 补充 web / desktop / TUI 三端安装说明。
 - **v0.2.2（2026-08-24）**：修复 Windows 凭据路径探测（Local → Roaming，issue #1）。
 
-## 发布规矩（同工作区根 AGENTS.md）
+## 发布历史（v0.3.x / v0.4.x 的详细推理）
+
+这两条在「最近发布」里被折叠，完整推理保留如下，因为它们是后续改动的地基：
+
+- **v0.3.0（2026-08-28，tag `v0.3.0` → `817975d`）**：模型目录改为**纯本地**——新增 `src/v3-config.ts` 解析 `~/.workbuddy/cache/acc-product-config-v3.json`，按 `cli` agent 的 id 列表取完整字段；`fetchModels` 去掉远程请求与 credential 参数。`contextWindow` 取值顺序固定为 `maxInputTokens → maxAllowedSize → defaultLength`（避免 `defaultLength` 作为厂商族默认值虚高，例如 `claude-opus-4.8` 报 1M 实为 200K）。实测 31 个模型、约 5ms，含此前缺失的 `hy4-preview-ioa` 与 `echo`。**注：本次只删了远程请求，网络解析分支的其余残留在 v0.4.0 的 `7d10f7b` 才清干净。**
+
+- **默认档位 = 声明集的次高档（随 v0.4.0 发布）**：`WorkBuddyPiAiAdapter.resolveModel` 把 `reasoning.defaultEffort` 重写成该模型 `supportedEfforts` 的**次高档**（只有一个档位时就是该档）。DSH 的语义是「`defaultEffort` 会被 materialize 进未指定档位的请求，且 picker 只在它缺席时才提供 "provider default" 项」（`dsh-llm` 的 `LlmModelReasoningInfo` 类型注释 + `dsh-client-ui-model-selection` 的 `choices` / `effortChoices`），所以上报它同时达成两件事：默认请求带上一个上游必然接受的声明值，picker 里不再出现「默认」选项。上游自己的 `defaultEffort`（观测到的都是 `high`）不采用——它不等于次高（如 `gpt-6-astra` 五档的次高是 `xhigh`），且上游的接受集只由 `supportedEfforts` 定义。只在 `resolveModel` 生效：`LlmModelInfo`（list 形态）没有 reasoning 字段，picker 的分组目录由 resolved 答案构建。边界：两档模型（如 `hy3-ioa` / `deepseek-v4-pro-ioa`）的次高即较低那档。
+
+- **默认档位 400（code 11150）修复（随 v0.4.0 发布）**：`toPiModel` 曾把 `canDisableThinking: true` 的模型的 `thinkingLevelMap.off` 映射成字符串 `'off'`。pi-ai 对 `off` 的语义是「未选档位时发送 `thinkingLevelMap.off`」（`openai-completions.js` 的 `typeof offValue === "string"` 分支），于是每次不带显式档位的请求都会发 `reasoning_effort: "off"` —— 上游按模型的 `supportedEfforts` 严格校验（`deepseek-v4.1-flash` 只声明 `['low','high','max']`），返回 HTTP 400 code 11150。`hy4-preview-ioa` 不出问题是因为它 `canDisableThinking: false` → `map.off = null` → 不发字段。修复：`off` 只在上游 `supportedEfforts` 真的声明它时才映射（`WorkBuddyEffort` 词表同步收编 `'off'`）；`canDisableThinking` 降级为纯上游事实镜像，不再参与档位暴露。桌面端 CLI 的关闭语义是「删除 `reasoning_effort`」而非发 `off`，与此一致。
+
+## 文档索引
+
+- [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) —— 模型列表的解析链路、缓存所有权、手动刷新机制、三种刷新手段的取舍、排查清单。
+- [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) —— 类型锁 0.1.2-alpha.5 但运行在 0.1.6-alpha.2 上的已知偏差、破坏性变更、升依赖检查清单。
+- [`docs/image-modality-gap.md`](docs/image-modality-gap.md) —— 图片输入被拦截的定位与修复（v0.2.5）。
+
+## 发布规矩
 
 未经明确指令不得 `npm publish` / 打 release tag；发布前 `pnpm run check` 全过，顺序固定：**先升版本号，再 check/构建，最后发布**。

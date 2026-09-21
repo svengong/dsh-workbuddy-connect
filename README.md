@@ -21,20 +21,14 @@
 - **思考强度**：按上游每个模型声明的 `supportedEfforts` 提供思考等级选项（如 GLM-5.3 支持 low / high / xhigh，GLM-5.3-Flash 支持 low / high / max），在 DSH 模型选择器里即可切换，请求以 `reasoning_effort` 转发。
 
 
-- **限时免费一目了然**：状态卡片会标注当前免费 / 限时免费 / 夜间折扣的模型（跟随上游 `credits` 与 `tags` 实时更新）。
+- **限时免费一目了然**：模型名上直接标出当前免费 / 限时免费 / 夜间折扣（跟随上游 `credits` 与 `tags` 实时更新）。
 
 
-- **费率比例直接可见**：模型选择列表里每个模型名后直接显示积分倍率（如 `GLM-5.2 · x0.79`、`Hy3 · x0.00`），`/model` 弹窗与 composer 下拉都能看到；设置卡片里也补充了倍率说明。倍率只影响显示，发送请求仍使用模型 id。
+- **费率比例直接可见**：模型选择列表里每个模型名后直接显示积分倍率（如 `GLM-5.2 · x0.79`、`Hy3 · x0.00`），`/model` 弹窗与 composer 下拉都能看到。倍率只影响显示，发送请求仍使用模型 id。
 
 
-- **信息查看**：设置 → 插件 → DSH WorkBuddy Connect 卡片
+- **手动刷新模型列表**：设置 → 模型 → WorkBuddy 卡片里有一个「刷新模型列表」按钮。模型列表来自 WorkBuddy 桌面 App 的本地缓存，App 更新缓存后点一下即可让 DSH 立刻重新读取并发布，**不需要重启 DSH**。详见 [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md)。
 
-
-![设置卡片显示插件](assets/2.png)
-
-卡片展开后，可查看账号信息、令牌有效期与剩余积分。
-
-![设置卡片显示账号与剩余积分](assets/3.png)
 
 ## 安装
 
@@ -45,10 +39,6 @@
 ```sh
 # Web（推荐，自带预构建产物）
 dsh plugin --profile web add dsh-workbuddy-connect
-dsh web
-
-# 或从 GitHub 源码安装 Web 版
-dsh plugin --profile web add github:corrinehu/dsh-workbuddy-connect
 dsh web
 ```
 
@@ -64,17 +54,24 @@ dsh plugin --profile dsh-tui add dsh-workbuddy-connect
 dsh --profile dsh-tui
 ```
 
-> 提示：`dsh-tui` profile 需用 pnpm 11 安装（PATH 里是其他版本会报 `ERR_PNPM_UNEXPECTED_STORE`，用 `npx pnpm@11` 即可）；已验证 dsh `0.1.1-rc.2`。
+> 提示：`dsh-tui` profile 需用 pnpm 11 安装（PATH 里是其他版本会报 `ERR_PNPM_UNEXPECTED_STORE`，用 `npx pnpm@11` 即可）。
 
-安装后，在对应界面的模型选择器里切换到 WorkBuddy 模型即可使用；Web 下设置卡片（设置 → 插件 → DSH WorkBuddy Connect）可查看账号信息、令牌有效期与剩余积分，TUI 下可在 `/settings` 里配置 `authFile`。
+安装后，在对应界面的模型选择器里切换到 WorkBuddy 模型即可使用；**设置 → 模型** 页的 WorkBuddy 卡片里有「刷新模型列表」按钮，TUI 下可在 `/settings` 里配置 `authFile`。
 
 ## 命令行
 
-`dsh plugin --profile <web|desktop|dsh-tui> exec dsh-workbuddy-connect status`：登录状态与剩余积分（`--json` 输出机器可读格式；另有 `doctor` 诊断、`logout` 清理凭据）。
+`dsh-workbuddy-connect-oo status`：登录状态与剩余积分（`--json` 输出机器可读格式；另有 `doctor` 诊断、`logout` 清理凭据）。
+
+`doctor --json` 还会报出模型缓存文件的位置与条数，是排查"模型列表不更新"的第一步：
+
+```sh
+dsh-workbuddy-connect-oo doctor --json
+```
 
 ## 已知限制
 
-- 在 macOS 的 DSH Web / Desktop / TUI profile（`0.1.1-rc.2`+、Node 22+）下验证通过。Windows 会依次探测 Local 与 Roaming AppData；WSL 会优先从挂载的 Windows 用户目录读取登录凭据。若 Windows 与 Linux 用户名不同且 Windows 环境变量未传入 WSL，请通过 `WORKBUDDY_AUTH_FILE` 指定实际位置。
+- 在 macOS 的 DSH Web / Desktop / TUI profile（Node 22+）下验证通过；Web 端已在 DSH `0.1.6-alpha.2` 上实测。Windows 会依次探测 Local 与 Roaming AppData；WSL 会优先从挂载的 Windows 用户目录读取登录凭据。若 Windows 与 Linux 用户名不同且 Windows 环境变量未传入 WSL，请通过 `WORKBUDDY_AUTH_FILE` 指定实际位置。
+- 模型列表只读 WorkBuddy 桌面 App 的本地缓存，插件不联网取目录。因此**新增模型的前提是桌面 App 自己刷新过缓存**；插件侧用「刷新模型列表」按钮让 DSH 重读。缓存不可读时该 provider 显示为空列表，而不是回退到可能过期的内置目录。
 - 依赖 WorkBuddy 客户端接口（非官方开放 API），WorkBuddy 更新后插件可能需要随之调整。
 
 ## 免责声明

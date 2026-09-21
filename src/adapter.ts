@@ -244,6 +244,33 @@ function toPiModel(info: WorkBuddyModelInfo, baseUrl: string): Model<Api> {
 }
 
 /**
+ * The profile shape this package must hand to `dsh-llm-pi-ai`.
+ *
+ * `dsh-llm-pi-ai` 0.1.5+ reads `profile.modelErrors` inside `modelOf()` on every
+ * model resolution:
+ *
+ *     const failure = profile.modelErrors.get(model) ?? …
+ *
+ * A profile without it throws `Cannot read properties of undefined (reading
+ * 'get')`. `buildModelCatalog` contains that per provider, so the symptom is not
+ * a crash but a whole group replaced by a `failures` entry — the picker renders
+ * "WorkBuddy 加载失败：Cannot read properties of undefined (reading 'get')" and
+ * none of the models are selectable. (Upstream fixed the same gap in its v0.3.2
+ * for DSH 0.1.5.)
+ *
+ * The field is added through this local intersection because the `0.1.2-alpha.5`
+ * types this package compiles against predate it: `ResolvedPiAiProviderProfile`
+ * there has no `modelErrors`, so neither the compiler nor a test against that
+ * dependency can notice its absence. See the profile-contract assertion in
+ * `tests/settings-integration.spec.ts`, which checks the shape at runtime.
+ *
+ * An empty map is the correct value here: it means "no model on this route is
+ * broken". Those descriptors are built by this adapter, which fails them during
+ * construction rather than deferring to a per-model error.
+ */
+type ProfileWithModelErrors = ResolvedPiAiProviderProfile & { modelErrors: Map<string, string> }
+
+/**
  * Assemble the adapter. The provider's `getModels` reads the live catalog,
  * and every model's `baseUrl` is re-resolved per read so the shim's
  * ephemeral port applies from the first snapshot after startup.
@@ -281,7 +308,7 @@ export function createWorkBuddyAdapter(options: WorkBuddyAdapterOptions): WorkBu
   // provider, while the catalog answer tracks the upstream refresh.
   const provider: Provider = { ...base, getModels: () => buildModels() }
 
-  const profile: ResolvedPiAiProviderProfile = {
+  const profile: ProfileWithModelErrors = {
     provider: WORKBUDDY_PROVIDER,
     displayName: 'WorkBuddy',
     streamIdleTimeoutMs: WORKBUDDY_STREAM_IDLE_TIMEOUT_MS,
@@ -289,6 +316,7 @@ export function createWorkBuddyAdapter(options: WorkBuddyAdapterOptions): WorkBu
     configuredMaxTokens: new Map(),
     ...REQUEST_IMAGE_BUDGETS,
     piProvider: provider,
+    modelErrors: new Map(),
   }
 
   let profiles = new Map<string, ResolvedPiAiProviderProfile>([[WORKBUDDY_PROVIDER, profile]])

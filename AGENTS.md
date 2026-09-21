@@ -48,7 +48,7 @@
 
 ## 未发布改动
 
-- 无。工作树与 `main` 一致时即代表当前版本就是全部内容。
+- **修 `modelErrors` 缺失导致 WorkBuddy 整组在模型选择器里加载失败**（症状：`WorkBuddy 加载失败：Cannot read properties of undefined (reading 'get')`，33 个模型全不可选；而「刷新模型列表」仍报成功，因为它只统计缓存条数）。`src/adapter.ts` 自己构造的 `ResolvedPiAiProviderProfile` 补上 `modelErrors: new Map()`，本地交叉类型 `ProfileWithModelErrors` 承载这个字段（编译所用的 0.1.2-alpha.5 类型里没有它）。同时给 `tests/settings-integration.spec.ts` 加了结构性断言 —— 离线测试对这类"宿主库比编译库新"的要求原理上无效，原因与教训见 [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) 第 6 节。**尚未装进 profile / 未在真机验证**，且版本号未动（仍是 0.4.3）。
 
 ## 最近发布
 

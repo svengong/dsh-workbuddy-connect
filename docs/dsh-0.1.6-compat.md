@@ -65,7 +65,7 @@ error TS2717: Subsequent property declarations must have the same type.
 2. `ctx.llm.registerAdapter` 的 handle 类型（`AdapterRegistrationHandle` 的 `replace` 是否仍在，是否新增了别的方法）；
 3. `dsh-client-ui-*` 的 slot 注册 spec 字段（`key`/`priority` vs `id`/`order`）；
 4. `dsh-settings` 的 `installSection` 签名（0.1.2-alpha.5 已把 `installSettingsSection()` 换成服务方法，别再回退）；
-5. `dsh-llm-pi-ai` 的 profile 类型字段（上游 v0.3.2 为 0.1.5 补过 `modelErrors`，本 fork 尚未跟进）。
+5. `dsh-llm-pi-ai` 的 profile 字段 `modelErrors`（**已修**，见第 6 节；但编译所用的类型仍缺，所以本地交叉类型要保留）。
 
 ---
 
@@ -108,3 +108,31 @@ await healProfilesModuleFallback({
 ```
 
 它内部按 `readlinkSync(link) === entry.packageDir` 判定是否需要重写，所以只在真的过期时才动。（同一函数在 `resolutionMode: "link"` 的启动路径上会被自动调用。）**下次升级 runtime 后还会再陈旧一次** —— alpha.2 起的默认模式不维护农场，这是上游该修的地方。
+
+---
+
+## 6. `modelErrors`：一个只在运行时才炸的必填字段（已修）
+
+**症状**：模型选择器里 WorkBuddy 整组变成
+
+```
+WorkBuddy 加载失败：Cannot read properties of undefined (reading 'get')
+```
+
+33 个模型一个都选不了。而「刷新模型列表」按钮照旧报成功 —— 它只统计从缓存解析出的条数，不经过这条路径，所以两条信息看起来自相矛盾，很容易误判成刷新把状态弄坏了。
+
+**根因**：`dsh-llm-pi-ai` 0.1.5+ 在 `modelOf()` 里逐次读取
+
+```js
+const failure = profile.modelErrors.get(model) ?? …
+```
+
+（0.1.6-alpha.1 与 alpha.2 都有，同一行号。）而本插件自己构造那份 profile（`src/adapter.ts`），**从未提供 `modelErrors`** → `undefined.get` 抛错 → `buildModelCatalog` 按 provider 捕获，把整组换成 `failures` 条目。上游 v0.3.2 已为 DSH 0.1.5 修过同一条，本 fork 当时没跟进。
+
+**修法**：profile 补 `modelErrors: new Map()`（空 Map 是正确值：这些描述符由本适配器在构造期就把问题暴露出来，不存在"个别模型坏掉"的延迟状态）。本包编译所用的 `0.1.2-alpha.5` 类型里**没有这个字段**，因此用一个本地交叉类型 `ProfileWithModelErrors` 加上，而不是去改共享类型。
+
+**为什么既有测试一条都没发现（重要教训）**：仓库的 devDependency 仍是 `0.1.2-alpha.5`，而那一版的 `modelOf()` **根本不读** `modelErrors` —— 同一份代码在测试里完好，在宿主上炸掉。这类"宿主库比编译库新"的要求，**离线测试从原理上覆盖不到**。能用的两道防线：
+- **结构性断言**：`tests/settings-integration.spec.ts` 直接检查注册表里那份 profile 带 `modelErrors` 且为空 Map（已验证：去掉修复行该断言会失败）；
+- **真机检查**：每次升级 DSH 运行时后，看一眼选择器里每一组是否都能展开 —— `doctor` 和离线测试都看不到 `failures`。
+
+**同类风险**：凡是本插件"自己构造对象交给宿主库"的地方（`ResolvedPiAiProviderProfile`、交给 `ctx.llm.registerAdapter` 的 adapter 形状、settings section 描述符），宿主库新增必填字段都会以这种静默方式失效。升级运行时后按第 4 节清单逐项核对。

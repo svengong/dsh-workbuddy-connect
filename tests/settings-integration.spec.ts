@@ -114,6 +114,25 @@ describe('WorkBuddy Host settings integration', () => {
     expect(models.map(model => model.id)).toContain('auto')
     expect(models.map(model => model.id)).toContain('deepseek-v4-pro-ioa')
 
+    // The profile handed to `dsh-llm-pi-ai` must carry `modelErrors`.
+    //
+    // 0.1.5+ reads `profile.modelErrors.get(model)` inside `modelOf()` on every
+    // resolution; without the map it throws `Cannot read properties of
+    // undefined (reading 'get')`, which `buildModelCatalog` contains per
+    // provider — so the picker shows "WorkBuddy 加载失败：…" and offers none of
+    // the models, while this very test keeps passing. It keeps passing because
+    // the devDependency here is still `0.1.2-alpha.5`, whose `modelOf()` never
+    // reads the field: the requirement lives only in the library the Host
+    // actually loads. A structural assertion is therefore the only thing in
+    // this repo that can catch a regression.
+    const registered = (ctx.llm as unknown as {
+      adapters: Map<string, { adapter: { config: { profiles: () => ReadonlyMap<string, { modelErrors?: unknown }> } } }>
+    }).adapters.get('workbuddy-oo')
+    expect(registered).toBeDefined()
+    const profile = registered!.adapter.config.profiles().get('workbuddy-oo')
+    expect(profile?.modelErrors).toBeInstanceOf(Map)
+    expect((profile!.modelErrors as Map<string, string>).size).toBe(0)
+
     // The billing rate rides the display name (and the advisory description)
     // so both the /model popup and the composer seat show it; the id and the
     // request path are untouched by this display-only decoration. The raw

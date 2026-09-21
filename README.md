@@ -36,13 +36,18 @@
 
 插件在三种 DSH 界面下均可运行：**Web**、**Desktop**、**TUI**。根据你使用的 profile 选对应命令安装。
 
-> 本仓库**只维护本地 git，不发布到 npm**（`package.json` 已标 `"private": true`），所以用**本地路径**安装。装完后 pnpm 会在 profile 的 `node_modules` 里放一份**实体副本**（不是软链）——**改了代码要重新构建并重跑安装才会生效**。
+> 本仓库**只维护本地 git，不发布到 npm**（`package.json` 已标 `"private": true`），所以用**本地路径**安装。装完后 pnpm 会在 profile 的 `node_modules` 里放一份**实体副本**（普通文件，不是软链）。
 
 ```sh
-# Web（推荐）
+# 首次安装（Web，推荐）
 cd /path/to/dsh-workbuddy-connect && pnpm run build
 dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 dsh web
+
+# 改了代码后重装 —— 单独 add 不会刷新副本（pnpm 认为目录依赖已解析），必须 remove 再 add
+cd /path/to/dsh-workbuddy-connect && pnpm run build
+dsh plugin --profile web remove dsh-workbuddy-connect-oo
+dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 ```
 
 ```sh

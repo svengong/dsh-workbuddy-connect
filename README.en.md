@@ -27,10 +27,16 @@ Prerequisite: the WorkBuddy desktop app is installed and signed in (the plugin r
 The plugin runs under all three DSH interfaces: **Web**, **Desktop**, and **TUI**. Pick the install command that matches the profile you use.
 
 ```sh
-# Web (recommended)
+# First install (Web, recommended)
 cd /path/to/dsh-workbuddy-connect && pnpm run build
 dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 dsh web
+
+# After changing code — a plain `add` does NOT refresh the copy
+# (pnpm treats the directory dependency as already resolved), so remove then add
+cd /path/to/dsh-workbuddy-connect && pnpm run build
+dsh plugin --profile web remove dsh-workbuddy-connect-oo
+dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 ```
 
 ```sh
@@ -47,7 +53,7 @@ dsh --profile dsh-tui
 
 > Note: the `dsh-tui` profile requires pnpm 11 to install packages (a different pnpm on PATH fails with `ERR_PNPM_UNEXPECTED_STORE` — use `npx pnpm@11`).
 >
-> This repository is **maintained as local git only and is not published to npm** (`package.json` is marked `"private": true`), so it installs by **local path**. pnpm then places a **physical copy** (not a symlink) in the profile's `node_modules` — change code, rebuild, and re-run the install for it to take effect. See section 4 of [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md) for the three ways to pick up changes (page refresh / plugin reload / DSH restart) and what each one covers.
+> This repository is **maintained as local git only and is not published to npm** (`package.json` is marked `"private": true`), so it installs by **local path**. pnpm then places a **physical copy** (plain files, not a symlink) in the profile's `node_modules`. See section 4 of [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md) for the three ways to pick up changes (page refresh / plugin reload / DSH restart) and what each one covers.
 
 After installing, switch to a WorkBuddy model in the model picker of the interface you chose. On Web, the WorkBuddy card under **Settings → Models** carries the "Refresh model list" button; on TUI, configure `authFile` in `/settings`.
 

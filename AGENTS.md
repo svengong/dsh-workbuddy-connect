@@ -6,13 +6,16 @@
 
 - **不要 `npm publish`、不要打 release tag、不要 `git push`**，除非用户明确要求。
 - 版本号是本 fork **自己的线**，与上游不共享。已知历史撞号：本仓库的 `v0.3.0`（`f7671da`）与 `v0.4.0`（`36e27e4`）与上游同名 tag 指向**不同提交**。后续升版本请避开上游已用过的号段，或改用带后缀的形式。
-- **部署方式：本地路径安装**（`dsh plugin --profile web add file:/Users/sven/workspace/dsh-workbuddy-connect`）。`package.json` 已标 `"private": true`，且不再有 `repository`/`bugs`/`homepage` 字段。
-  - **pnpm 的 `file:` 依赖是复制，不是软链**：装完 `node_modules/dsh-workbuddy-connect-oo/` 是本仓库的一份实体副本。**改了代码必须重新 `tsdown` 构建、再重跑一次 `add` 才会生效**；直接改 `lib/` 或 `src/` 不会影响已安装的副本。
-  - 重装命令（版本号变了也要重跑，pnpm 会比对 `version` 字段）：
+- **部署方式：本地路径安装**（`file:/Users/sven/workspace/dsh-workbuddy-connect`）。`package.json` 已标 `"private": true`，且不再有 `repository`/`bugs`/`homepage` 字段。
+  - **pnpm 的 `file:` 依赖是复制，不是软链**：装完后 `profiles/web/node_modules/dsh-workbuddy-connect-oo/` 是本仓库的一份**实体副本**（普通文件，`links=1`）。改 `src/` 或 `lib/` 都不会影响已安装的副本。
+  - **只重跑 `add` 不会刷新副本**（2026-09-21 实测）：lockfile 里记的是 `resolution: {directory: …, type: directory}`，pnpm 认定这个目录依赖已解析就直接跳过，`add` 与 `add --force` 都不重写副本，输出只有 `Packages: -2` / `Already up to date`。**必须 `remove` 再 `add`**：
     ```sh
     cd /Users/sven/workspace/dsh-workbuddy-connect && node_modules/.bin/tsdown
-    cd /Users/sven/.dsh/profiles/web && dsh plugin --profile web add file:/Users/sven/workspace/dsh-workbuddy-connect
+    cd /Users/sven/.dsh/profiles/web
+    dsh plugin --profile web remove dsh-workbuddy-connect-oo
+    dsh plugin --profile web add file:/Users/sven/workspace/dsh-workbuddy-connect
     ```
+  - **副作用：`remove`/`add` 会把 `dsh.profile.bundles` 里的顺序改成把本插件排到最后。** 加载顺序对本插件无影响（它只依赖 `dsh-base` 提供的 `llm`，而 `dsh-base` 排在最前），但会留下一个非预期的 diff；要消除就手动把 `dsh-workbuddy-connect-oo` 挪回原位。
   - **生效范围**：只改客户端包（`lib/client.js`）时刷新页面即可（DSH 会重新下发 bundle）；改了 Host 侧代码需要重载插件或重启 DSH。见 [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) 第 4 节。
   - 安装形态变更史：v0.4.2 之前是 `github:` 固定 commit pin（`svengong/dsh-workbuddy-connect#<sha>`），随远程断开而废弃。
 

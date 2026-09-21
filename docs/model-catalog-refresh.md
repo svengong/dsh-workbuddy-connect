@@ -98,7 +98,7 @@ handle.replace([WORKBUDDY_PROVIDER])        // 3. 原子重发路由 → 广播�
 
 ### 3.4 类型上的处理
 
-本包 peer 锁在 `dsh 0.1.2-alpha.5`，**没有**这两个槽位的声明。这里用局部窄接口（`LateDeclaredKeyedSlot`）而不是 `SlotMap` 声明合并，原因：声明合并会在依赖升到 0.1.6 线与 owner 自己的声明冲突（"subsequent property declarations must have the same type"）。运行时契约只是一个字符串 + `key`。
+这里用局部窄接口（`LateDeclaredKeyedSlot`）而不是 `SlotMap` 声明合并：声明合并会和 owner 自己的声明冲突（`error TS2717: Subsequent property declarations must have the same type`）。**保留这个 cast 已不是因为类型落后** —— v0.4.3 依赖线已对齐到 `dsh 0.1.6-alpha.2`，`settings.models.provider-card` 的声明可以直接引用；现在是为了不为一个注册点额外引入 `@deepseek-ai/dsh-client-ui-settings-models` 依赖。运行时契约只是一个字符串 + `key`，代价仅是组件 props 少一层类型检查。要展开这个组件时，加依赖并去掉 cast。
 
 ---
 

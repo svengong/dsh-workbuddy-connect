@@ -1,14 +1,16 @@
-# 在 DSH 0.1.6-alpha.2 上运行（类型仍锁 0.1.2-alpha.5）
+# 在 DSH 0.1.6-alpha.2 上运行
 
-日期：2026-09-20
+日期：2026-09-20（v0.4.3 依赖线迁移后更新）
 状态：**真机验证可运行**（Web 端，DSH `0.1.6-alpha.2`）
-适用范围：`dsh-workbuddy-connect-oo` v0.4.2
+适用范围：`dsh-workbuddy-connect-oo` v0.4.3
 
 ---
 
 ## 0. 为什么会有这份文档
 
-本包 peer 锁在 `dsh 0.1.2-alpha.5` 一代，而实际运行的 DSH 是 `0.1.6-alpha.2`。**运行时能跑**，但类型层与运行时的偏差会持续制造"编译过了、行为不对"的陷阱（比如槽位注册成功但永远不渲染）。这里集中记录已知的偏差与处理原则，避免下一轮重新踩。
+本包最初 peer 锁在 `dsh 0.1.2-alpha.5` 一代，而实际运行的 DSH 是 `0.1.6-alpha.2`。运行时能跑，但类型层与运行时的偏差会持续制造"编译过了、行为不对"的陷阱（比如槽位注册成功但永远不渲染）。
+
+**v0.4.3 起依赖线已对齐到 `0.1.6-alpha.2`**（12 个 `@deepseek-ai/dsh-*` 同级，`@earendil-works/pi-ai` `^0.85.1`），编译库与宿主库不再有代差 —— 第 6 节那个 `modelErrors` 盲区就是这样被关掉的。本文档继续记录 0.1.6 的破坏性变更与运行时陷阱，避免下一轮升级重新踩。
 
 ---
 
@@ -20,6 +22,7 @@
 | `ctx.llm.registerAdapter` 返回的 handle 有 `replace()` | 手动刷新链路可用（见 `docs/model-catalog-refresh.md`） |
 | 槽位注册 spec **同时接受** `key`/`priority` 与 `id`/`order` | `dsh-client-ui-slots` 的 `StoredEntry.options` 两种字段都在 |
 | `settings.models.provider-card`（keyed）与 `settings.models.footer`（list）都存在 | `ui-settings-models` 的 slot-contract 里已声明 |
+| 编译库 == 宿主库（0.1.6-alpha.2）时，宿主新增的必填 profile 字段由编译器把关 | 去掉 `modelErrors` 立即 `error TS2741`（第 6 节） |
 
 ---
 
@@ -43,29 +46,30 @@
 
 ---
 
-## 3. 类型偏差的处理原则
+## 3. 类型对齐后剩下的偏差
 
-**不要用 `SlotMap` 声明合并去补 0.1.6 的槽位。** 本包类型里没有 `settings.models.provider-card`，但声明合并会在依赖升到 0.1.6 线与 owner 自己的声明冲突：
+依赖线对齐后，0.1.6 的槽位声明（`settings.models.provider-card`、`plugins.item`）都能直接引用，不再需要为它们做类型补丁。**也不要**用 `SlotMap` 声明合并去补：会和 owner 自己的声明撞
 
 ```
 error TS2717: Subsequent property declarations must have the same type.
 ```
 
-**采用的做法**：局部窄接口描述真正用到的那一小块契约（`LateDeclaredKeyedSlot`），槽位名与 key 用字符串常量。运行时契约本来就只是一个字符串 + `key`，副作用是组件 props 少一层类型检查 —— 对"一个按钮 + 一行文案"的规模是合适的取舍。
-
-完整例子见 `src/client/index.tsx`。
+**保留的一处局部窄接口**在 `src/client/index.tsx`（`LateDeclaredKeyedSlot`），原因已不是"类型太旧"，而是**不想为一个注册点额外引入 `@deepseek-ai/dsh-client-ui-settings-models` 依赖**：槽位名与 key 用字符串常量即可，运行时契约本来就只是字符串 + `key`，代价是组件 props 少一层类型检查 —— 对"一个按钮 + 一行文案"的规模是合适的取舍。以后要展开这个组件时，顺手加依赖、去掉这个 cast。
 
 ---
 
-## 4. 升依赖时的检查清单
+## 4. 依赖线迁移（v0.4.3 已完成）与以后的检查清单
 
-真要升到 0.1.6 类型线时，按顺序确认：
+v0.4.3 把 12 个 `@deepseek-ai/dsh-*` 从 `0.1.2-alpha.5` 提到 `0.1.6-alpha.2`（peer + dev 两处共 21 处声明），`@earendil-works/pi-ai` 提到 `^0.85.1`。迁移成本很低：只有 `src/adapter.ts` 与 `src/client/index.tsx` 两处需要动，另有一处本地交叉类型因字段变为必填而删除。
 
-1. `settings.models.provider-card` / `plugins.item` 的声明形状，删掉对应的 `LateDeclared*` 窄接口；
+以后再升依赖线时，按顺序确认：
+
+1. `settings.models.provider-card` / `plugins.item` 的声明形状，删掉不再需要的 `LateDeclared*` 窄接口；
 2. `ctx.llm.registerAdapter` 的 handle 类型（`AdapterRegistrationHandle` 的 `replace` 是否仍在，是否新增了别的方法）；
 3. `dsh-client-ui-*` 的 slot 注册 spec 字段（`key`/`priority` vs `id`/`order`）；
 4. `dsh-settings` 的 `installSection` 签名（0.1.2-alpha.5 已把 `installSettingsSection()` 换成服务方法，别再回退）；
-5. `dsh-llm-pi-ai` 的 profile 字段 `modelErrors`（**已修**，见第 6 节；但编译所用的类型仍缺，所以本地交叉类型要保留）。
+5. `dsh-llm-pi-ai` 的 profile 字段 —— 对齐依赖线后**编译器会替你检查**（缺 `modelErrors` 是 `TS2741`，见第 6 节）；
+6. 跑 `pnpm run typecheck` + `src/tests` 全量 + `pnpm run doctor`，最后真机看选择器里每一组能否展开。
 
 ---
 
@@ -129,10 +133,12 @@ const failure = profile.modelErrors.get(model) ?? …
 
 （0.1.6-alpha.1 与 alpha.2 都有，同一行号。）而本插件自己构造那份 profile（`src/adapter.ts`），**从未提供 `modelErrors`** → `undefined.get` 抛错 → `buildModelCatalog` 按 provider 捕获，把整组换成 `failures` 条目。上游 v0.3.2 已为 DSH 0.1.5 修过同一条，本 fork 当时没跟进。
 
-**修法**：profile 补 `modelErrors: new Map()`（空 Map 是正确值：这些描述符由本适配器在构造期就把问题暴露出来，不存在"个别模型坏掉"的延迟状态）。本包编译所用的 `0.1.2-alpha.5` 类型里**没有这个字段**，因此用一个本地交叉类型 `ProfileWithModelErrors` 加上，而不是去改共享类型。
+**修法**：profile 补 `modelErrors: new Map()`（空 Map 是正确值：这些描述符由本适配器在构造期就把问题暴露出来，不存在"个别模型坏掉"的延迟状态）。修复当时本包编译所用的还是 `0.1.2-alpha.5` 类型，那里**没有这个字段**，所以先用一个本地交叉类型 `ProfileWithModelErrors` 补上；v0.4.3 对齐依赖线到 `0.1.6-alpha.2` 后，该字段在共享类型里是必填的，那个交叉类型随之删除 —— **现在漏掉它编译不过**。
 
-**为什么既有测试一条都没发现（重要教训）**：仓库的 devDependency 仍是 `0.1.2-alpha.5`，而那一版的 `modelOf()` **根本不读** `modelErrors` —— 同一份代码在测试里完好，在宿主上炸掉。这类"宿主库比编译库新"的要求，**离线测试从原理上覆盖不到**。能用的两道防线：
+**为什么既有测试一条都没发现（迁移前的盲区，重要教训）**：仓库的 devDependency 是 `0.1.2-alpha.5`，而那一版的 `modelOf()` **根本不读** `modelErrors` —— 同一份代码在测试里完好，在宿主上炸掉。这类"宿主库比编译库新"的要求，**离线测试从原理上覆盖不到**。能用的两道防线：
 - **结构性断言**：`tests/settings-integration.spec.ts` 直接检查注册表里那份 profile 带 `modelErrors` 且为空 Map（已验证：去掉修复行该断言会失败）；
 - **真机检查**：每次升级 DSH 运行时后，看一眼选择器里每一组是否都能展开 —— `doctor` 和离线测试都看不到 `failures`。
+
+> v0.4.3 对齐依赖线后，这道盲区被两层堵死，且都已实测：**编译器**——删掉修复行 `tsc` 直接报 `TS2741`；**运行时路径**——`tests/settings-integration.spec.ts` 里那几次 `resolveModelInfo` 现在真的走进 `modelOf()`（同一实验下该测试以宿主那个 `TypeError: Cannot read properties of undefined (reading 'get')` 失败）。也就是说"离线测试原理上覆盖不到"只成立于**依赖线错代**这一个前提；前提没了，覆盖也就有了。真机检查仍不可省，但它现在防的是"值不对"，而不是"字段没有"。
 
 **同类风险**：凡是本插件"自己构造对象交给宿主库"的地方（`ResolvedPiAiProviderProfile`、交给 `ctx.llm.registerAdapter` 的 adapter 形状、settings section 描述符），宿主库新增必填字段都会以这种静默方式失效。升级运行时后按第 4 节清单逐项核对。

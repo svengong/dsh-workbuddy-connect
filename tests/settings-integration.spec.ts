@@ -120,11 +120,16 @@ describe('WorkBuddy Host settings integration', () => {
     // resolution; without the map it throws `Cannot read properties of
     // undefined (reading 'get')`, which `buildModelCatalog` contains per
     // provider — so the picker shows "WorkBuddy 加载失败：…" and offers none of
-    // the models, while this very test keeps passing. It keeps passing because
-    // the devDependency here is still `0.1.2-alpha.5`, whose `modelOf()` never
-    // reads the field: the requirement lives only in the library the Host
-    // actually loads. A structural assertion is therefore the only thing in
-    // this repo that can catch a regression.
+    // the models.
+    //
+    // Since v0.4.3 the devDependency is the same `0.1.6-alpha.2` the Host runs,
+    // so this is guarded twice over and both layers are exercised here: the
+    // `resolveModelInfo` calls below hit `modelOf()` for real (removing the
+    // field fails this test with the Host's exact TypeError), and `tsc` fails
+    // it as `TS2741` because the field is required in the shared type. The
+    // structural assertion stays as the cheap, explicit statement of the
+    // contract — before the alignment it was the ONLY thing that could catch a
+    // regression, because `0.1.2-alpha.5`'s `modelOf()` never read the field.
     const registered = (ctx.llm as unknown as {
       adapters: Map<string, { adapter: { config: { profiles: () => ReadonlyMap<string, { modelErrors?: unknown }> } } }>
     }).adapters.get('workbuddy-oo')

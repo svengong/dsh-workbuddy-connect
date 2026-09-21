@@ -48,7 +48,9 @@
 
 ## 未发布改动
 
-- **修 `modelErrors` 缺失导致 WorkBuddy 整组在模型选择器里加载失败**（症状：`WorkBuddy 加载失败：Cannot read properties of undefined (reading 'get')`，33 个模型全不可选；而「刷新模型列表」仍报成功，因为它只统计缓存条数）。`src/adapter.ts` 自己构造的 `ResolvedPiAiProviderProfile` 补上 `modelErrors: new Map()`，本地交叉类型 `ProfileWithModelErrors` 承载这个字段（编译所用的 0.1.2-alpha.5 类型里没有它）。同时给 `tests/settings-integration.spec.ts` 加了结构性断言 —— 离线测试对这类"宿主库比编译库新"的要求原理上无效，原因与教训见 [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) 第 6 节。**已用 `pnpm run reinstall` 装进 profile**（profile 的 `lib/` 与仓库逐字节一致、含 `modelErrors`）；**但运行中的 host 仍是旧构建**（`b16a2e8164` vs 已安装的 `5948ce7ff4`），因此真机上仍是整组加载失败——`reinstall` 只改磁盘，进程要继续跑启动时加载的模块。**重启 DSH 后生效**，届时 `doctor` 两个构建号应相等、选择器里 WorkBuddy 应恢复为可选分组。版本号未动（仍是 0.4.3）。
+- **修 `modelErrors` 缺失导致 WorkBuddy 整组在模型选择器里加载失败**（症状：`WorkBuddy 加载失败：Cannot read properties of undefined (reading 'get')`，33 个模型全不可选；而「刷新模型列表」仍报成功，因为它只统计缓存条数）。`src/adapter.ts` 自己构造的 `ResolvedPiAiProviderProfile` 补上 `modelErrors: new Map()`。同时给 `tests/settings-integration.spec.ts` 加了结构性断言 —— 离线测试对这类"宿主库比编译库新"的要求原理上无效，原因与教训见 [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) 第 6 节。**已装进 profile 并在运行中的 host 生效**：host 于 2026-09-21 13:54 重启，心跳 `pluginBuild = 5948ce7ff4`（含 `modelErrors`），`doctor` 的 `modelCatalog.models = 33`。
+- **依赖线从 `0.1.2-alpha.5` 对齐到 `0.1.6-alpha.2`**（12 个 `@deepseek-ai/dsh-*`，peer + dev 共 21 处；`@earendil-works/pi-ai` → `^0.85.1`）。编译库与宿主库从此同代，上面那条 `modelErrors` 的盲区由编译器接管（去掉该字段即 `error TS2741`，已验证）；原先承载它的本地交叉类型 `ProfileWithModelErrors` 随之删除。全部检查通过：`tsc` 双工程 0 错、114 项测试全绿、`tsdown` 构建成功（构建号 `cac75e146e`），并已 `pnpm run reinstall` 装进 profile（doctor 报 `build: cac75e146e`）。**运行中的 host 仍是 `5948ce7ff4`**，重启后两者一致 —— 差异只是依赖线，行为等价。
+- 版本号未动（仍是 **0.4.3**）。
 
 ## 最近发布
 
@@ -86,7 +88,7 @@
 ## 文档索引
 
 - [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) —— 模型列表的解析链路、缓存所有权、手动刷新机制、三种刷新手段的取舍、排查清单。
-- [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) —— 类型锁 0.1.2-alpha.5 但运行在 0.1.6-alpha.2 上的已知偏差、破坏性变更、升依赖检查清单。
+- [`docs/dsh-0.1.6-compat.md`](docs/dsh-0.1.6-compat.md) —— 在 DSH 0.1.6-alpha.2 上运行的破坏性变更、运行时陷阱（含陈旧的 profile 模块农场）、依赖线迁移记录与以后的升级检查清单。
 - [`docs/image-modality-gap.md`](docs/image-modality-gap.md) —— 图片输入被拦截的定位与修复（v0.2.5）。
 
 ## 发布规矩

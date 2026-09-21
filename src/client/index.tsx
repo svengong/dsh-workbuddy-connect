@@ -41,12 +41,14 @@ const PROVIDER_CARD_KEY = 'workbuddy-oo'
 /**
  * The slice of the slot service this registration needs.
  *
- * Typed locally rather than through `SlotMap`: this package's pinned DSH types
- * predate the seat, and declaring the key in the shared table would collide
- * with the owner's own declaration — "subsequent property declarations must
- * have the same type" — as soon as those dependencies move to the 0.1.6 line.
- * The wire contract is small and stable: a keyed slot takes `key` (the cell),
- * and an `inject` factory supplies the component's extra props.
+ * Typed locally rather than through `SlotMap`: the seat is declared by
+ * `@deepseek-ai/dsh-client-ui-settings-models`, which this package deliberately
+ * does not depend on — the Host composes that package into the web profile, and
+ * a registrant only needs the key string at runtime. Declaring the key in the
+ * shared table instead would collide with the owner's own declaration
+ * ("subsequent property declarations must have the same type"). The wire
+ * contract is small and stable: a keyed slot takes `key` (the cell), and an
+ * `inject` factory supplies the component's extra props.
  */
 interface LateDeclaredKeyedSlot {
   inject: (name: string, register: () => () => void) => () => void

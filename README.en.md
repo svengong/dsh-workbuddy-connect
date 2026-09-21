@@ -27,24 +27,27 @@ Prerequisite: the WorkBuddy desktop app is installed and signed in (the plugin r
 The plugin runs under all three DSH interfaces: **Web**, **Desktop**, and **TUI**. Pick the install command that matches the profile you use.
 
 ```sh
-# Web (recommended; ships prebuilt artifacts)
-dsh plugin --profile web add dsh-workbuddy-connect
+# Web (recommended)
+cd /path/to/dsh-workbuddy-connect && pnpm run build
+dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 dsh web
 ```
 
 ```sh
 # Desktop (the DSH Desktop app)
-dsh plugin --profile desktop add dsh-workbuddy-connect
+dsh plugin --profile desktop add file:/path/to/dsh-workbuddy-connect
 dsh --profile desktop
 ```
 
 ```sh
 # TUI (terminal UI)
-dsh plugin --profile dsh-tui add dsh-workbuddy-connect
+dsh plugin --profile dsh-tui add file:/path/to/dsh-workbuddy-connect
 dsh --profile dsh-tui
 ```
 
 > Note: the `dsh-tui` profile requires pnpm 11 to install packages (a different pnpm on PATH fails with `ERR_PNPM_UNEXPECTED_STORE` — use `npx pnpm@11`).
+>
+> This repository is **maintained as local git only and is not published to npm** (`package.json` is marked `"private": true`), so it installs by **local path**. pnpm then places a **physical copy** (not a symlink) in the profile's `node_modules` — change code, rebuild, and re-run the install for it to take effect. See section 4 of [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md) for the three ways to pick up changes (page refresh / plugin reload / DSH restart) and what each one covers.
 
 After installing, switch to a WorkBuddy model in the model picker of the interface you chose. On Web, the WorkBuddy card under **Settings → Models** carries the "Refresh model list" button; on TUI, configure `authFile` in `/settings`.
 
@@ -76,6 +79,14 @@ dsh-workbuddy-connect-oo doctor --json
 - [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api) (MIT) — reference implementation of the WorkBuddy upstream protocol.
 - [franksong2702/dsh-codex-connect](https://github.com/franksong2702/dsh-codex-connect) (Apache-2.0) — reference for the DSH plugin structure and provider registration.
 
+## Provenance and licensing
+
+This repository, `dsh-workbuddy-connect-oo`, is derived from **corrinehu/dsh-workbuddy-connect** (MIT, Copyright (c) 2026 Corrine Hu) and evolves independently from it.
+
+- **Kept as upstream**: the original copyright notice in `LICENSE` is preserved verbatim, as the MIT license requires.
+- **Divergences in this branch**: the package name is `dsh-workbuddy-connect-oo` and the provider route is `workbuddy-oo`, so it can coexist with the upstream plugin; the model catalog is read only from the local cache (upstream also has network and static fallbacks). The full divergence list is in [`AGENTS.md`](./AGENTS.md).
+- **Distribution**: this repository is maintained as local git only — never pushed, never published to npm (`package.json` is marked `"private": true`). Installation is by local path, not from a remote repository.
+
 ## License
 
-[MIT](./LICENSE)
+[MIT](./LICENSE) (the upstream copyright notice is preserved in [LICENSE](./LICENSE))

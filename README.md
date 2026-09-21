@@ -36,25 +36,30 @@
 
 插件在三种 DSH 界面下均可运行：**Web**、**Desktop**、**TUI**。根据你使用的 profile 选对应命令安装。
 
+> 本仓库**只维护本地 git，不发布到 npm**（`package.json` 已标 `"private": true`），所以用**本地路径**安装。装完后 pnpm 会在 profile 的 `node_modules` 里放一份**实体副本**（不是软链）——**改了代码要重新构建并重跑安装才会生效**。
+
 ```sh
-# Web（推荐，自带预构建产物）
-dsh plugin --profile web add dsh-workbuddy-connect
+# Web（推荐）
+cd /path/to/dsh-workbuddy-connect && pnpm run build
+dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 dsh web
 ```
 
 ```sh
 # Desktop（DSH Desktop 桌面版）
-dsh plugin --profile desktop add dsh-workbuddy-connect
+dsh plugin --profile desktop add file:/path/to/dsh-workbuddy-connect
 dsh --profile desktop
 ```
 
 ```sh
 # TUI（终端界面）
-dsh plugin --profile dsh-tui add dsh-workbuddy-connect
+dsh plugin --profile dsh-tui add file:/path/to/dsh-workbuddy-connect
 dsh --profile dsh-tui
 ```
 
 > 提示：`dsh-tui` profile 需用 pnpm 11 安装（PATH 里是其他版本会报 `ERR_PNPM_UNEXPECTED_STORE`，用 `npx pnpm@11` 即可）。
+>
+> 改了代码后可用的三种刷新方式（页面刷新 / 重载插件 / 重启 DSH）与各自生效范围见 [`docs/model-catalog-refresh.md`](./docs/model-catalog-refresh.md) 第 4 节。
 
 安装后，在对应界面的模型选择器里切换到 WorkBuddy 模型即可使用；**设置 → 模型** 页的 WorkBuddy 卡片里有「刷新模型列表」按钮，TUI 下可在 `/settings` 里配置 `authFile`。
 
@@ -86,6 +91,14 @@ dsh-workbuddy-connect-oo doctor --json
 - [Sliverkiss/workbuddy2api](https://github.com/Sliverkiss/workbuddy2api)（MIT）— WorkBuddy 上游协议的参照实现。
 - [franksong2702/dsh-codex-connect](https://github.com/franksong2702/dsh-codex-connect)（Apache-2.0）— DSH 插件结构与 provider 注册的参照。
 
+## 来源与许可
+
+本仓库 `dsh-workbuddy-connect-oo` 派生自 **corrinehu/dsh-workbuddy-connect**（MIT，Copyright (c) 2026 Corrine Hu），在其基础上独立演进。
+
+- **保持上游身份不改的部分**：`LICENSE` 里的原始版权声明按 MIT 要求原样保留。
+- **本分支的偏离**：包名改为 `dsh-workbuddy-connect-oo`、provider 路由改为 `workbuddy-oo`，避免与上游插件同时安装时冲突；模型目录只读本地缓存（上游还有网络与静态兜底）。差异清单见 [`AGENTS.md`](./AGENTS.md)。
+- **分发状态**：本仓库只维护本地 git，不推送、不发布到 npm（`package.json` 已标 `"private": true`）。安装方式是本地路径，不是远程仓库。
+
 ## 许可证
 
-[MIT](./LICENSE)
+[MIT](./LICENSE)（上游原始版权声明保留于 [`LICENSE`](./LICENSE)）

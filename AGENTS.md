@@ -6,7 +6,15 @@
 
 - **不要 `npm publish`、不要打 release tag、不要 `git push`**，除非用户明确要求。
 - 版本号是本 fork **自己的线**，与上游不共享。已知历史撞号：本仓库的 `v0.3.0`（`f7671da`）与 `v0.4.0`（`36e27e4`）与上游同名 tag 指向**不同提交**。后续升版本请避开上游已用过的号段，或改用带后缀的形式。
-- 部署方式：profile 用 `github:` 固定 commit pin（`dsh plugin --profile web add github:svengong/dsh-workbuddy-connect#<sha>`）。remote 删掉后，改本地代码后想生效需要改为本地路径安装（`dsh plugin --profile web add /path/to/repo`）——**pin 与 remote 的处理方式变更时，本文档需同步更新。**
+- **部署方式：本地路径安装**（`dsh plugin --profile web add file:/Users/sven/workspace/dsh-workbuddy-connect`）。`package.json` 已标 `"private": true`，且不再有 `repository`/`bugs`/`homepage` 字段。
+  - **pnpm 的 `file:` 依赖是复制，不是软链**：装完 `node_modules/dsh-workbuddy-connect-oo/` 是本仓库的一份实体副本。**改了代码必须重新 `tsdown` 构建、再重跑一次 `add` 才会生效**；直接改 `lib/` 或 `src/` 不会影响已安装的副本。
+  - 重装命令（版本号变了也要重跑，pnpm 会比对 `version` 字段）：
+    ```sh
+    cd /Users/sven/workspace/dsh-workbuddy-connect && node_modules/.bin/tsdown
+    cd /Users/sven/.dsh/profiles/web && dsh plugin --profile web add file:/Users/sven/workspace/dsh-workbuddy-connect
+    ```
+  - **生效范围**：只改客户端包（`lib/client.js`）时刷新页面即可（DSH 会重新下发 bundle）；改了 Host 侧代码需要重载插件或重启 DSH。见 [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) 第 4 节。
+  - 安装形态变更史：v0.4.2 之前是 `github:` 固定 commit pin（`svengong/dsh-workbuddy-connect#<sha>`），随远程断开而废弃。
 
 ## 待办
 

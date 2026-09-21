@@ -32,12 +32,15 @@ cd /path/to/dsh-workbuddy-connect && pnpm run build
 dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 dsh web
 
-# After changing code — a plain `add` does NOT refresh the copy
-# (pnpm treats the directory dependency as already resolved), so remove then add
-cd /path/to/dsh-workbuddy-connect && pnpm run build
-dsh plugin --profile web remove dsh-workbuddy-connect-oo
-dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
+# After changing code, reinstall into the profile — use the repo script, not a hand-run add
+node scripts/reinstall-local.mjs          # defaults to web; pass desktop / dsh-tui to switch
 ```
+
+> Why a script: pnpm records **no content hash** for a local directory dependency (the lockfile says
+> `resolution: {directory: …, type: directory}`, with no integrity), so `add`, `add --force`, `update`
+> and `install --force` are all no-ops — only `remove` + `add` rewrites the copy. The script wraps that
+> step and also restores the `dsh.profile.bundles` order that remove/add shuffles, verifies the installed
+> copy byte-for-byte, and tells you whether to refresh the page or reload the plugin.
 
 ```sh
 # Desktop (the DSH Desktop app)

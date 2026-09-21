@@ -7,16 +7,21 @@
 - **不要 `npm publish`、不要打 release tag、不要 `git push`**，除非用户明确要求。
 - 版本号是本 fork **自己的线**，与上游不共享。已知历史撞号：本仓库的 `v0.3.0`（`f7671da`）与 `v0.4.0`（`36e27e4`）与上游同名 tag 指向**不同提交**。后续升版本请避开上游已用过的号段，或改用带后缀的形式。
 - **部署方式：本地路径安装**（`file:/Users/sven/workspace/dsh-workbuddy-connect`）。`package.json` 已标 `"private": true`，且不再有 `repository`/`bugs`/`homepage` 字段。
-  - **pnpm 的 `file:` 依赖是复制，不是软链**：装完后 `profiles/web/node_modules/dsh-workbuddy-connect-oo/` 是本仓库的一份**实体副本**（普通文件，`links=1`）。改 `src/` 或 `lib/` 都不会影响已安装的副本。
-  - **只重跑 `add` 不会刷新副本**（2026-09-21 实测）：lockfile 里记的是 `resolution: {directory: …, type: directory}`，pnpm 认定这个目录依赖已解析就直接跳过，`add` 与 `add --force` 都不重写副本，输出只有 `Packages: -2` / `Already up to date`。**必须 `remove` 再 `add`**：
-    ```sh
-    cd /Users/sven/workspace/dsh-workbuddy-connect && node_modules/.bin/tsdown
-    cd /Users/sven/.dsh/profiles/web
-    dsh plugin --profile web remove dsh-workbuddy-connect-oo
-    dsh plugin --profile web add file:/Users/sven/workspace/dsh-workbuddy-connect
-    ```
-  - **副作用：`remove`/`add` 会把 `dsh.profile.bundles` 里的顺序改成把本插件排到最后。** 加载顺序对本插件无影响（它只依赖 `dsh-base` 提供的 `llm`，而 `dsh-base` 排在最前），但会留下一个非预期的 diff；要消除就手动把 `dsh-workbuddy-connect-oo` 挪回原位。
-  - **生效范围**：只改客户端包（`lib/client.js`）时刷新页面即可（DSH 会重新下发 bundle）；改了 Host 侧代码需要重载插件或重启 DSH。见 [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) 第 4 节。
+  - **改完代码用 `node scripts/reinstall-local.mjs [profile]`**（默认 `web`）。它做五件事：构建 → `remove`+`add` → 恢复 `dsh.profile.bundles` 顺序 → 逐字节校验副本 → 按改动范围提示该刷新页面还是重载插件。校验不过会以非零码退出。
+  - **为什么需要这个脚本：pnpm 对本地目录依赖没有任何内容哈希可比。** lockfile 里记的是 `resolution: {directory: …, type: directory}`（**无 integrity**），所以所有"刷新"命令都是空操作 —— 2026-09-21 逐个实测：
+
+    | 命令 | 结果 |
+    |---|---|
+    | `plugin add file:…` | `Already up to date`，副本不重写 |
+    | `plugin add --force file:…` | 同上 |
+    | `plugin update <name>` | 同上 |
+    | `plugin install --force` | 同上 |
+    | **`remove` 然后 `add`** | **副本重写**（唯一可靠路径） |
+
+    装出来的是**实体副本**（普通文件，`links=1`），既不是硬链接也不是软链，所以没有任何自动同步。
+  - **脚本处理了一个副作用**：`remove`/`add` 会把本插件在 `dsh.profile.bundles` 里挪到最后。顺序对本插件无影响（它只依赖 `dsh-base` 提供的 `llm`，而 `dsh-base` 排最前），但会留下非预期 diff，所以脚本自动还原。
+  - **脚本用的是 runtime 里的 dsh，不是 PATH 上的**：本机 PATH 上是全局 `dsh@0.1.1-rc.2`，而活动运行时是 `~/.dsh/runtime/current`（0.1.6-alpha.2）。用旧 CLI 驱动 profile 会写出旧 schema 的 manifest，所以脚本优先取 `$DSH_HOME/runtime/current/node_modules/.bin/dsh`，可用 `DSH_BIN=` 覆盖。
+  - **生效范围**：脚本会报告。只改客户端包（`lib/client.js`）时刷新页面即可（DSH 会重新下发 bundle）；改了 Host 侧代码需要重载插件或重启 DSH。见 [`docs/model-catalog-refresh.md`](docs/model-catalog-refresh.md) 第 4 节。
   - 安装形态变更史：v0.4.2 之前是 `github:` 固定 commit pin（`svengong/dsh-workbuddy-connect#<sha>`），随远程断开而废弃。
 
 ## 待办

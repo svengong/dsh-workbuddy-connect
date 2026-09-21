@@ -125,9 +125,15 @@ handle.replace([WORKBUDDY_PROVIDER])        // 3. 原子重发路由 → 广播�
 
 ### 4.2 让代码改动生效
 
-只有改了仓库里的 `.ts` 才需要。**注意 `file:` 依赖是复制不是软链**，且 pnpm 认为已解析的目录依赖不用重取 —— **单独 `add` 不会刷新副本，必须 `remove` 再 `add`**（实测见 [`AGENTS.md`](../AGENTS.md) 的部署说明）。装完之后：
+只有改了仓库里的 `.ts` 才需要。用仓库里的脚本：
 
-**只改客户端包（`lib/client.js`）时不需要重启**：DSH 的 client-modules 会在插件包变化后重新下发 bundle（boot payload 里的 `rev` 会变），刷新页面即可。**改了 Host 侧代码才需要重载插件或重启 DSH。**
+```sh
+node scripts/reinstall-local.mjs          # 默认 web，可传 desktop / dsh-tui
+```
+
+它做五件事：构建 → `remove`+`add` → 恢复 `dsh.profile.bundles` 顺序 → 逐字节校验副本 → 报告该刷新页面还是重载插件。**别手敲 `add`**：pnpm 对本地目录依赖不记内容哈希，`add`、`add --force`、`update`、`install --force` 全是空操作，只有 `remove` 再 `add` 会重写副本（四个命令的实测记录见 [`AGENTS.md`](../AGENTS.md) 的部署说明）。
+
+**只改客户端包（`lib/client.js`）时不需要重启**：DSH 的 client-modules 会在插件包变化后重新下发 bundle（boot payload 里的 `rev` 会变），刷新页面即可。**改了 Host 侧代码才需要重载插件或重启 DSH。** 脚本会比对安装前后的 `lib/index.js` 与 `lib/client.js` 哈希，直接把该做哪一步打出来。
 
 ---
 

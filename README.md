@@ -44,11 +44,11 @@ cd /path/to/dsh-workbuddy-connect && pnpm run build
 dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
 dsh web
 
-# 改了代码后重装 —— 单独 add 不会刷新副本（pnpm 认为目录依赖已解析），必须 remove 再 add
-cd /path/to/dsh-workbuddy-connect && pnpm run build
-dsh plugin --profile web remove dsh-workbuddy-connect-oo
-dsh plugin --profile web add file:/path/to/dsh-workbuddy-connect
+# 改了代码后重新装进 profile —— 用仓库里的脚本，不要手敲 add
+node scripts/reinstall-local.mjs          # 默认 web，可传 desktop / dsh-tui
 ```
+
+> 为什么需要脚本：pnpm 对本地目录依赖**不记录任何内容哈希**（lockfile 里是 `resolution: {directory: …, type: directory}`，没有 integrity），所以 `add`、`add --force`、`update`、`install --force` 全是空操作，只有 `remove` + `add` 会重写副本。脚本封装了这一步，并顺带恢复被 `remove`/`add` 打乱的 `dsh.profile.bundles` 顺序、逐字节校验副本、告诉你该刷新页面还是重载插件。
 
 ```sh
 # Desktop（DSH Desktop 桌面版）
